@@ -4,7 +4,7 @@ This is an experimental tool for converting the PJBoy's Super Metroid banklogs i
 You can find an interactive web-based viewer for the bank logs here: [Bank logs](http://patrickjohnston.org/bank/index.html)
 
 # Running
-- Run "download_banks.py" in the "logs" folder to download the latest bank logs.
+- Run `git submodule update --init` to clone logs to the `logs` directory.
 - Run "cargo run --release" to start the conversion (run in release mode so it doesn't take ages)
 - Hopefully you'll have output in the "asm" folder that you can now assemble with asar, using the "main.asm" file as the starting point.
 

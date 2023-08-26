@@ -1,0 +1,5 @@
+[submodule "logs"]
+	path = logs
+	url = https://github.com/yuriks/pjboy-sm-bank-logs.git
+	branch = disasm-tags
+	shallow = 1
