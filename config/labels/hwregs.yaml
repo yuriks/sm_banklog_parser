@@ -1,11 +1,215 @@
-- addr: 0x002140
-  name: APUIO0
+- { addr: 0x2100, name: INIDISP }
+- { addr: 0x2101, name: OBSEL }
+- { addr: 0x2102, name: OAMADDL }
+- { addr: 0x2103, name: OAMADDH }
+- { addr: 0x2104, name: OAMDATA }
+- { addr: 0x2105, name: BGMODE }
+- { addr: 0x2106, name: MOSAIC }
+- { addr: 0x2107, name: BG1SC }
+- { addr: 0x2108, name: BG2SC }
+- { addr: 0x2109, name: BG3SC }
+- { addr: 0x210A, name: BG4SC }
+- { addr: 0x210B, name: BG12NBA }
+- { addr: 0x210C, name: BG34NBA }
+- { addr: 0x210D, name: BG1HOFS }
+- { addr: 0x210E, name: BG1VOFS }
+- { addr: 0x210F, name: BG2HOFS }
+- { addr: 0x2110, name: BG2VOFS }
+- { addr: 0x2111, name: BG3HOFS }
+- { addr: 0x2112, name: BG3VOFS }
+- { addr: 0x2113, name: BG4HOFS }
+- { addr: 0x2114, name: BG4VOFS }
+- { addr: 0x2115, name: VMAIN }
+- { addr: 0x2116, name: VMADDL }
+- { addr: 0x2117, name: VMADDH }
+- { addr: 0x2118, name: VMDATAL }
+- { addr: 0x2119, name: VMDATAH }
+- { addr: 0x211A, name: M7SEL }
+- { addr: 0x211B, name: M7A }
+- { addr: 0x211C, name: M7B }
+- { addr: 0x211D, name: M7C }
+- { addr: 0x211E, name: M7D }
+- { addr: 0x211F, name: M7X }
+- { addr: 0x2120, name: M7Y }
+- { addr: 0x2121, name: CGADD }
+- { addr: 0x2122, name: CGDATA }
+- { addr: 0x2123, name: W12SEL }
+- { addr: 0x2124, name: W34SEL }
+- { addr: 0x2125, name: WOBJSEL }
+- { addr: 0x2126, name: WH0 }
+- { addr: 0x2127, name: WH1 }
+- { addr: 0x2128, name: WH2 }
+- { addr: 0x2129, name: WH3 }
+- { addr: 0x212A, name: WBGLOG }
+- { addr: 0x212B, name: WOBJLOG }
+- { addr: 0x212C, name: TM }
+- { addr: 0x212D, name: TS }
+- { addr: 0x212E, name: TMW }
+- { addr: 0x212F, name: TSW }
+- { addr: 0x2130, name: CGWSEL }
+- { addr: 0x2131, name: CGADSUB }
+- { addr: 0x2132, name: COLDATA }
+- { addr: 0x2133, name: SETINI }
 
-- addr: 0x002141
-  name: APUIO1
+- { addr: 0x2134, name: MPYL }
+- { addr: 0x2135, name: MPYM }
+- { addr: 0x2136, name: MPYH }
+- { addr: 0x2137, name: SLHV }
+- { addr: 0x2138, name: RDOAM }
+- { addr: 0x2139, name: RDVRAML }
+- { addr: 0x213A, name: RDVRAMH }
+- { addr: 0x213B, name: RDCGRAM }
+- { addr: 0x213C, name: OPHCT }
+- { addr: 0x213D, name: OPVCT }
+- { addr: 0x213E, name: STAT77 }
+- { addr: 0x213F, name: STAT78 }
 
-- addr: 0x002142
-  name: APUIO2
+- { addr: 0x2140, name: APUIO0 }
+- { addr: 0x2141, name: APUIO1 }
+- { addr: 0x2142, name: APUIO2 }
+- { addr: 0x2143, name: APUIO3 }
 
-- addr: 0x002143
-  name: APUIO3
+- { addr: 0x2180, name: WMDATA }
+- { addr: 0x2181, name: WMADDL }
+- { addr: 0x2182, name: WMADDM }
+- { addr: 0x2183, name: WMADDH }
+
+#- { addr: 0x4016, name: JOYWR }
+- { addr: 0x4016, name: JOYA }
+- { addr: 0x4017, name: JOYB }
+
+- { addr: 0x4200, name: NMITIMEN }
+- { addr: 0x4201, name: WRIO }
+- { addr: 0x4202, name: WRMPYA }
+- { addr: 0x4203, name: WRMPYB }
+- { addr: 0x4204, name: WRDIVL }
+- { addr: 0x4205, name: WRDIVH }
+- { addr: 0x4206, name: WRDIVB }
+- { addr: 0x4207, name: HTIMEL }
+- { addr: 0x4208, name: HTIMEH }
+- { addr: 0x4209, name: VTIMEL }
+- { addr: 0x420A, name: VTIMEH }
+- { addr: 0x420B, name: MDMAEN }
+- { addr: 0x420C, name: HDMAEN }
+- { addr: 0x420D, name: MEMSEL }
+
+- { addr: 0x4210, name: RDNMI }
+- { addr: 0x4211, name: TIMEUP }
+- { addr: 0x4212, name: HVBJOY }
+- { addr: 0x4213, name: RDIO }
+- { addr: 0x4214, name: RDDIVL }
+- { addr: 0x4215, name: RDDIVH }
+- { addr: 0x4216, name: RDMPYL }
+- { addr: 0x4217, name: RDMPYH }
+- { addr: 0x4218, name: JOY1L }
+- { addr: 0x4219, name: JOY1H }
+- { addr: 0x421A, name: JOY2L }
+- { addr: 0x421B, name: JOY2H }
+- { addr: 0x421C, name: JOY3L }
+- { addr: 0x421D, name: JOY3H }
+- { addr: 0x421E, name: JOY4L }
+- { addr: 0x421F, name: JOY4H }
+
+- { addr: 0x4300, name: DMAP0 }
+- { addr: 0x4301, name: BBAD0 }
+- { addr: 0x4302, name: A1T0L }
+- { addr: 0x4303, name: A1T0H }
+- { addr: 0x4304, name: A1B0 }
+- { addr: 0x4305, name: DAS0L }
+- { addr: 0x4306, name: DAS0H }
+- { addr: 0x4307, name: DASB0 }
+- { addr: 0x4308, name: A2A0L }
+- { addr: 0x4309, name: A2A0H }
+- { addr: 0x430A, name: NTRL0 }
+- { addr: 0x430F, name: MIRR0 }
+
+- { addr: 0x4310, name: DMAP1 }
+- { addr: 0x4311, name: BBAD1 }
+- { addr: 0x4312, name: A1T1L }
+- { addr: 0x4313, name: A1T1H }
+- { addr: 0x4314, name: A1B1 }
+- { addr: 0x4315, name: DAS1L }
+- { addr: 0x4316, name: DAS1H }
+- { addr: 0x4317, name: DASB1 }
+- { addr: 0x4318, name: A2A1L }
+- { addr: 0x4319, name: A2A1H }
+- { addr: 0x431A, name: NTRL1 }
+- { addr: 0x431F, name: MIRR1 }
+
+- { addr: 0x4320, name: DMAP2 }
+- { addr: 0x4321, name: BBAD2 }
+- { addr: 0x4322, name: A1T2L }
+- { addr: 0x4323, name: A1T2H }
+- { addr: 0x4324, name: A1B2 }
+- { addr: 0x4325, name: DAS2L }
+- { addr: 0x4326, name: DAS2H }
+- { addr: 0x4327, name: DASB2 }
+- { addr: 0x4328, name: A2A2L }
+- { addr: 0x4329, name: A2A2H }
+- { addr: 0x432A, name: NTRL2 }
+- { addr: 0x432F, name: MIRR2 }
+
+- { addr: 0x4330, name: DMAP3 }
+- { addr: 0x4331, name: BBAD3 }
+- { addr: 0x4332, name: A1T3L }
+- { addr: 0x4333, name: A1T3H }
+- { addr: 0x4334, name: A1B3 }
+- { addr: 0x4335, name: DAS3L }
+- { addr: 0x4336, name: DAS3H }
+- { addr: 0x4337, name: DASB3 }
+- { addr: 0x4338, name: A2A3L }
+- { addr: 0x4339, name: A2A3H }
+- { addr: 0x433A, name: NTRL3 }
+- { addr: 0x433F, name: MIRR3 }
+
+- { addr: 0x4340, name: DMAP4 }
+- { addr: 0x4341, name: BBAD4 }
+- { addr: 0x4342, name: A1T4L }
+- { addr: 0x4343, name: A1T4H }
+- { addr: 0x4344, name: A1B4 }
+- { addr: 0x4345, name: DAS4L }
+- { addr: 0x4346, name: DAS4H }
+- { addr: 0x4347, name: DASB4 }
+- { addr: 0x4348, name: A2A4L }
+- { addr: 0x4349, name: A2A4H }
+- { addr: 0x434A, name: NTRL4 }
+- { addr: 0x434F, name: MIRR4 }
+
+- { addr: 0x4350, name: DMAP5 }
+- { addr: 0x4351, name: BBAD5 }
+- { addr: 0x4352, name: A1T5L }
+- { addr: 0x4353, name: A1T5H }
+- { addr: 0x4354, name: A1B5 }
+- { addr: 0x4355, name: DAS5L }
+- { addr: 0x4356, name: DAS5H }
+- { addr: 0x4357, name: DASB5 }
+- { addr: 0x4358, name: A2A5L }
+- { addr: 0x4359, name: A2A5H }
+- { addr: 0x435A, name: NTRL5 }
+- { addr: 0x435F, name: MIRR5 }
+
+- { addr: 0x4360, name: DMAP6 }
+- { addr: 0x4361, name: BBAD6 }
+- { addr: 0x4362, name: A1T6L }
+- { addr: 0x4363, name: A1T6H }
+- { addr: 0x4364, name: A1B6 }
+- { addr: 0x4365, name: DAS6L }
+- { addr: 0x4366, name: DAS6H }
+- { addr: 0x4367, name: DASB6 }
+- { addr: 0x4368, name: A2A6L }
+- { addr: 0x4369, name: A2A6H }
+- { addr: 0x436A, name: NTRL6 }
+- { addr: 0x436F, name: MIRR6 }
+
+- { addr: 0x4370, name: DMAP7 }
+- { addr: 0x4371, name: BBAD7 }
+- { addr: 0x4372, name: A1T7L }
+- { addr: 0x4373, name: A1T7H }
+- { addr: 0x4374, name: A1B7 }
+- { addr: 0x4375, name: DAS7L }
+- { addr: 0x4376, name: DAS7H }
+- { addr: 0x4377, name: DASB7 }
+- { addr: 0x4378, name: A2A7L }
+- { addr: 0x4379, name: A2A7H }
+- { addr: 0x437A, name: NTRL7 }
+- { addr: 0x437F, name: MIRR7 }
