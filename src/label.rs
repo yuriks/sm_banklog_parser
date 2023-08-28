@@ -1,14 +1,10 @@
 use std::collections::BTreeMap;
+
 use if_chain::if_chain;
-use lazy_static::lazy_static;
-use std::sync::Mutex;
 
 use crate::{code::ArgType, config::Config, data::DataVal, line::Line, opcode::{AddrMode, Opcode}};
 
-lazy_static! {
-    pub static ref LABELS: Mutex<BTreeMap<u64, Label>> = Mutex::new(BTreeMap::new());
-}
-
+pub type LabelMap = BTreeMap<u64, Label>;
 
 #[derive(Debug, PartialEq)]
 pub enum LabelType {
@@ -38,9 +34,7 @@ impl Label {
     }
 }
 
-pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
-    let mut labels = LABELS.lock().unwrap();
-
+pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels: &mut LabelMap) {
     /* Pre-initialize all labels from the config file */
     for label in &config.labels {
         let length = label.length.unwrap_or(0);

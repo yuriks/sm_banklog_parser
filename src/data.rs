@@ -1,6 +1,9 @@
-use crate::{config::Config, label::LABELS};
-use if_chain::if_chain;
 use std::fmt::Write;
+
+use if_chain::if_chain;
+
+use crate::config::Config;
+use crate::label::LabelMap;
 
 #[derive(Debug, Clone)]
 pub enum DataVal {
@@ -26,7 +29,7 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn to_string(&self, config: &Config) -> String {
+    pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         let mut last_data_cmd = "";
         let mut output = String::new();
         let mut first_cmd = true;
@@ -39,8 +42,6 @@ impl Data {
                 DataVal::DW(_) => ("dw", 2),
                 DataVal::DL(_) => ("dl", 3)
             };
-
-            let mut labels = LABELS.lock().unwrap();
 
             if !first_cmd && labels.contains_key(&cur_pc) {
                 /* There's a label for this address, add it into the data */

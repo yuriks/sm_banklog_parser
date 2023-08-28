@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
-use crate::{config::Config, label::{self, LabelType}, opcode::{AddrMode, Opcode}};
+use crate::{config::Config, label::LabelType, opcode::{AddrMode, Opcode}};
+use crate::label::LabelMap;
 
 #[derive(Debug, Clone)]
 pub enum ArgType {
@@ -20,17 +21,17 @@ pub struct Code {
 }
 
 impl Code {
-    fn arg_label(&self, config: &Config) -> String {
+    fn arg_label(&self, config: &Config, labels: &mut LabelMap) -> Option<String> {
         /* TODO: Get label if exists */
         /* Make sure to handle PC-relative addresses correctly */
         match self.arg {
             ArgType::Address(addr) => {
                 let label_addr = match self.opcode.addr_mode {
                     AddrMode::Relative => {
-                        ((self.address as i64) + 2 + (((addr & 0xFF) as i8)) as i64) as u64
+                        ((self.address as i64) + 2 + ((addr & 0xFF) as i8) as i64) as u64
                     },
                     AddrMode::RelativeLong => {
-                        ((self.address as i64) + 2 + (((addr & 0xFFFF) as i16)) as i64) as u64
+                        ((self.address as i64) + 2 + ((addr & 0xFFFF) as i16) as i64) as u64
                     },
                     _ => {
                         match self.length {
@@ -45,8 +46,6 @@ impl Code {
                         }
                     }
                 };
-
-                let mut labels = label::LABELS.lock().unwrap();
 
                 let label = {
                     if labels.contains_key(&label_addr) {
@@ -72,7 +71,7 @@ impl Code {
                     }
                 };
 
-                match label {
+                let result = match label {
                     (Some(l), offset) => {
                         l.use_from(self.address);
 
@@ -98,45 +97,48 @@ impl Code {
                             2 => format!("${:04X}", addr),
                             3 => format!("${:06X}", addr),
                             _ => panic!("Invalid argument length")
-                        }                        
+                        }
                     }
-                }
+                };
+
+                Some(result)
             },
             ArgType::BlockMove(src, dst) => {
-                format!("${:02X},${:02X}", src, dst)
+                Some(format!("${:02X},${:02X}", src, dst))
             },
-            _ => panic!("Tried to format a None-argument")
+            _ => None
         }
     }
 }
 
 impl Code {
-    pub fn to_string(&self, config: &Config) -> String {
+    pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
+        let arg_label = self.arg_label(config, labels).unwrap_or_default();
         let opcode = match self.opcode.addr_mode {
-            AddrMode::Absolute =>                       format!("{}.w {}", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteIndexedIndirect =>        format!("{}.w ({},X)", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteIndexedLong =>            format!("{}.l {},X", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteIndexedX =>               format!("{}.w {},X", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteIndexedY =>               format!("{}.w {},Y", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteIndirect =>               format!("{}.w ({})", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteIndirectLong =>           format!("{}.w [{}]", self.opcode.name, self.arg_label(config)),
-            AddrMode::AbsoluteLong =>                   format!("{}.l {}", self.opcode.name, self.arg_label(config)),
-            AddrMode::BlockMove =>                      format!("{} {}", self.opcode.name, self.arg_label(config)),
-            AddrMode::Direct =>                         format!("{}.b {}", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndexedIndirect =>          format!("{}.b ({},X)", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndexedX =>                 format!("{}.b {},X", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndexedY =>                 format!("{}.b {},Y", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndirect =>                 format!("{}.b ({})", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndirectIndexed =>          format!("{}.b ({}),Y", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndirectIndexedLong =>      format!("{}.b [{}],Y", self.opcode.name, self.arg_label(config)),
-            AddrMode::DirectIndirectLong =>             format!("{}.b [{}]", self.opcode.name, self.arg_label(config)),
-            AddrMode::Immediate =>                      format!("{}.{} #{}", self.opcode.name, if self.length == 1 { "b" } else { "w" }, self.arg_label(config)),
-            AddrMode::ImmediateByte =>                  format!("{}.b #{}", self.opcode.name, self.arg_label(config)),
+            AddrMode::Absolute =>                       format!("{}.w {}", self.opcode.name, arg_label),
+            AddrMode::AbsoluteIndexedIndirect =>        format!("{}.w ({},X)", self.opcode.name, arg_label),
+            AddrMode::AbsoluteIndexedLong =>            format!("{}.l {},X", self.opcode.name, arg_label),
+            AddrMode::AbsoluteIndexedX =>               format!("{}.w {},X", self.opcode.name, arg_label),
+            AddrMode::AbsoluteIndexedY =>               format!("{}.w {},Y", self.opcode.name, arg_label),
+            AddrMode::AbsoluteIndirect =>               format!("{}.w ({})", self.opcode.name, arg_label),
+            AddrMode::AbsoluteIndirectLong =>           format!("{}.w [{}]", self.opcode.name, arg_label),
+            AddrMode::AbsoluteLong =>                   format!("{}.l {}", self.opcode.name, arg_label),
+            AddrMode::BlockMove =>                      format!("{} {}", self.opcode.name, arg_label),
+            AddrMode::Direct =>                         format!("{}.b {}", self.opcode.name, arg_label),
+            AddrMode::DirectIndexedIndirect =>          format!("{}.b ({},X)", self.opcode.name, arg_label),
+            AddrMode::DirectIndexedX =>                 format!("{}.b {},X", self.opcode.name, arg_label),
+            AddrMode::DirectIndexedY =>                 format!("{}.b {},Y", self.opcode.name, arg_label),
+            AddrMode::DirectIndirect =>                 format!("{}.b ({})", self.opcode.name, arg_label),
+            AddrMode::DirectIndirectIndexed =>          format!("{}.b ({}),Y", self.opcode.name, arg_label),
+            AddrMode::DirectIndirectIndexedLong =>      format!("{}.b [{}],Y", self.opcode.name, arg_label),
+            AddrMode::DirectIndirectLong =>             format!("{}.b [{}]", self.opcode.name, arg_label),
+            AddrMode::Immediate =>                      format!("{}.{} #{}", self.opcode.name, if self.length == 1 { "b" } else { "w" }, arg_label),
+            AddrMode::ImmediateByte =>                  format!("{}.b #{}", self.opcode.name, arg_label),
             AddrMode::Implied =>                        self.opcode.name.to_string(),
-            AddrMode::Relative =>                       format!("{} {}", self.opcode.name, self.arg_label(config)),
-            AddrMode::RelativeLong =>                   format!("{} {}", self.opcode.name, self.arg_label(config)),
-            AddrMode::StackRelative =>                  format!("{}.b {},S", self.opcode.name, self.arg_label(config)),
-            AddrMode::StackRelativeIndirectIndexed =>   format!("{}.b ({},S),Y", self.opcode.name, self.arg_label(config)),
+            AddrMode::Relative =>                       format!("{} {}", self.opcode.name, arg_label),
+            AddrMode::RelativeLong =>                   format!("{} {}", self.opcode.name, arg_label),
+            AddrMode::StackRelative =>                  format!("{}.b {},S", self.opcode.name, arg_label),
+            AddrMode::StackRelativeIndirectIndexed =>   format!("{}.b ({},S),Y", self.opcode.name, arg_label),
         };
 
         let mut result = format!("    {:<39} ; ${:06X} |", opcode, self.address);

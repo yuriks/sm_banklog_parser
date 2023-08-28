@@ -1,11 +1,14 @@
+use std::sync::Mutex;
+
+use byteorder::{ByteOrder, LittleEndian};
+use lazy_static::lazy_static;
+use regex::Regex;
+
+use crate::code::{ArgType, Code};
 use crate::config::Config;
 use crate::data::{Data, DataVal};
-use crate::code::{Code, ArgType};
-use crate::opcode::{OPCODES};
-use regex::Regex;
-use lazy_static::lazy_static;
-use byteorder::{ByteOrder, LittleEndian};
-use std::sync::Mutex;
+use crate::label::LabelMap;
+use crate::opcode::OPCODES;
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
@@ -31,11 +34,11 @@ pub enum Line
 }
 
 impl Line {
-    pub fn to_string(&self, config: &Config) -> String {
+    pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         match self {
             Line::Comment(s) => s.to_string(),
-            Line::Data(d) => d.to_string(config),
-            Line::Code(c) => c.to_string(config)
+            Line::Data(d) => d.to_string(config, labels),
+            Line::Code(c) => c.to_string(config, labels),
         }
     }
 }

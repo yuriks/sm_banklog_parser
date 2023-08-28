@@ -1,5 +1,5 @@
-use serde::{Deserialize};
 use glob::glob;
+use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct StructField {
