@@ -45,7 +45,7 @@ impl Data {
             if !first_cmd && labels.contains_key(&cur_pc) {
                 /* There's a label for this address, add it into the data */
                 output.push_str(&format!(" : {}: ", labels[&cur_pc].name));
-                let mut lbl = labels.get_mut(&cur_pc).unwrap();
+                let lbl = labels.get_mut(&cur_pc).unwrap();
                 lbl.assigned = true;
                 first_cmd = true;
                 first_val = true;

@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut labels = LABELS.lock().unwrap();
             if labels.contains_key(addr) {
                 let _ = writeln!(output_file, "{}{}", labels[addr].name, if labels[addr].name.starts_with(".") { "" } else { ":" });
-                let mut label = labels.get_mut(addr).unwrap();
+                let label = labels.get_mut(addr).unwrap();
                 label.assigned = true;
             }
         }
