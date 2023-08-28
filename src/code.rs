@@ -1,4 +1,6 @@
-use crate::{config::Config, label::{self, LabelType}, opcode::{Opcode, AddrMode}};
+use std::fmt::Write;
+
+use crate::{config::Config, label::{self, LabelType}, opcode::{AddrMode, Opcode}};
 
 #[derive(Debug, Clone)]
 pub enum ArgType {
@@ -35,7 +37,7 @@ impl Code {
                             1 => 0x7E0000 | (addr & 0xFF),
                             2 => match addr {
                                 0..=0x1FFF => 0x7E0000 | (addr & 0xFFFF),
-                                0x2000..=0x7FFF => (addr & 0xFFFF),
+                                0x2000..=0x7FFF => addr & 0xFFFF,
                                 _ => ((self.db as u64) << 16) | (addr & 0xFFFF)
                             },
                             3 => addr,
@@ -44,24 +46,24 @@ impl Code {
                     }
                 };
 
-                let labels = label::LABELS.lock().unwrap();
+                let mut labels = label::LABELS.lock().unwrap();
 
                 let label = {
                     if labels.contains_key(&label_addr) {
-                        (Some(&labels[&label_addr]), 0)
+                        (Some(labels.get_mut(&label_addr).unwrap()), 0)
                     } else if self.opcode.addr_mode != AddrMode::Relative &&
                                 self.opcode.addr_mode != AddrMode::RelativeLong &&
                                 self.opcode.name != "JSR" &&
                                 self.opcode.name != "JSL"
                         {
                         if labels.contains_key(&(label_addr - 1)) {
-                            (Some(&labels[&(label_addr - 1)]), -1)
+                            (Some(labels.get_mut(&(label_addr - 1)).unwrap()), -1)
                         } else if labels.contains_key(&(label_addr + 1)) {
-                            (Some(&labels[&(label_addr + 1)]), 1)
+                            (Some(labels.get_mut(&(label_addr + 1)).unwrap()), 1)
                         } else if labels.contains_key(&(label_addr - 2)) {
-                            (Some(&labels[&(label_addr - 2)]), -2)
+                            (Some(labels.get_mut(&(label_addr - 2)).unwrap()), -2)
                         } else if labels.contains_key(&(label_addr + 2)) {
-                            (Some(&labels[&(label_addr + 2)]), 2)
+                            (Some(labels.get_mut(&(label_addr + 2)).unwrap()), 2)
                         } else {
                             (None, 0)                         
                         }
@@ -72,6 +74,8 @@ impl Code {
 
                 match label {
                     (Some(l), offset) => {
+                        l.use_from(self.address);
+
                         if (((self.opcode.addr_mode == AddrMode::Immediate || self.opcode.addr_mode == AddrMode::ImmediateByte) && config.get_override(self.address).is_some()) || (self.opcode.addr_mode != AddrMode::Immediate && self.opcode.addr_mode != AddrMode::ImmediateByte)) && l.label_type != LabelType::Blocked {
                             match offset {
                                 0 => l.name.to_string(),
@@ -135,6 +139,11 @@ impl Code {
             AddrMode::StackRelativeIndirectIndexed =>   format!("{}.b ({},S),Y", self.opcode.name, self.arg_label(config)),
         };
 
-        format!("    {:<40};| {:06X} | {:02X} | {}", opcode, self.address, self.db, self.comment.as_ref().unwrap_or(&"".to_owned()))
+        let mut result = format!("    {:<39} ; ${:06X} |", opcode, self.address);
+        if let Some(comment) = &self.comment {
+            write!(&mut result, " {}", comment).unwrap();
+        }
+
+        result
     }
 }

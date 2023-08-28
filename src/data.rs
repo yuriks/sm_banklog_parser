@@ -1,5 +1,6 @@
 use crate::{config::Config, label::LABELS};
 use if_chain::if_chain;
+use std::fmt::Write;
 
 #[derive(Debug, Clone)]
 pub enum DataVal {
@@ -27,7 +28,7 @@ pub struct Data {
 impl Data {
     pub fn to_string(&self, config: &Config) -> String {
         let mut last_data_cmd = "";
-        let mut output = "    ".to_string();
+        let mut output = String::new();
         let mut first_cmd = true;
         let mut first_val = true;
         let mut cur_pc = self.address;
@@ -120,8 +121,9 @@ impl Data {
             cur_pc += data_len;
         }
 
+        output = format!("    {:<39} ; ${:06X} |", output, self.address);
         if let Some(comment) = &self.comment {
-            output.push_str(&format!(" ; | {:06X} | {}", self.address, comment));
+            write!(&mut output, " {}", comment).unwrap();
         }
 
         output

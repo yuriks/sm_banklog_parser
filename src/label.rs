@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use if_chain::if_chain;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use crate::{code::ArgType, config::Config, data::DataVal, line::Line, opcode::{AddrMode, Opcode}};
 
 lazy_static! {
-    pub static ref LABELS: Mutex<HashMap<u64, Label>> = Mutex::new(HashMap::new());
+    pub static ref LABELS: Mutex<BTreeMap<u64, Label>> = Mutex::new(BTreeMap::new());
 }
 
 
@@ -26,7 +26,16 @@ pub struct Label {
     pub address: u64,
     pub name: String,
     pub label_type: LabelType,
-    pub assigned: bool
+    pub assigned: bool,
+    pub external: bool,
+}
+
+impl Label {
+    pub fn use_from(&mut self, use_addr: u64) {
+        if use_addr >> 16 != self.address >> 16 {
+            self.external = true;
+        }
+    }
 }
 
 pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
@@ -49,7 +58,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
             address: label.addr, 
             name: label.name.clone(), 
             label_type, 
-            assigned: false 
+            assigned: false,
+            external: false,
         });
     }
 
@@ -65,7 +75,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                 address: label_addr,
                                 name: format!("SUB{}_{:06X}", if c.opcode.name == "JSL" { "L" } else { "" }, label_addr),
                                 label_type: LabelType::Subroutine,
-                                assigned: false
+                                assigned: false,
+                                external: false,
                             })
                         },
                         Opcode { addr_mode: AddrMode::AbsoluteIndexedIndirect, .. } => {
@@ -86,7 +97,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                     address: label_addr,
                                     name: format!("{}_{:06X}", prefix, label_addr),
                                     label_type: LabelType::PointerTable(0),
-                                    assigned: false
+                                    assigned: false,
+                                    external: false,
                                 })                 
                             } else {
                                 None
@@ -111,7 +123,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                     address: label_addr,
                                     name: format!("{}_{:06X}", prefix, label_addr),
                                     label_type: LabelType::DataTable(0),
-                                    assigned: false
+                                    assigned: false,
+                                    external: false,
                                 })                 
                             } else {
                                 None
@@ -134,7 +147,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                         address: label_addr,
                                         name,
                                         label_type,
-                                        assigned: false
+                                        assigned: false,
+                                        external: false,
                                     })
                                 } else {
                                     None
@@ -150,7 +164,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                 address: label_addr,
                                 name: format!("BRA_{:06X}", label_addr),
                                 label_type: LabelType::Branch,
-                                assigned: false
+                                assigned: false,
+                                external: false,
                             })                            
                         },
                         Opcode { addr_mode: AddrMode::Absolute, .. } |
@@ -173,7 +188,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                     address: label_addr,
                                     name: format!("{}_{:06X}", prefix, label_addr),
                                     label_type: if prefix != "SUB" { LabelType::Data } else { LabelType::Subroutine }, 
-                                    assigned: false
+                                    assigned: false,
+                                    external: false,
                                 })
                             } else {
                                 None
@@ -210,7 +226,12 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                 };
 
                                 labels.entry(label_addr).or_insert(Label { 
-                                    address: label_addr, name, label_type, assigned: false });
+                                    address: label_addr,
+                                    name,
+                                    label_type,
+                                    assigned: false,
+                                    external: false,
+                                });
                             }
                         }
 
@@ -231,8 +252,12 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                         let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
                                         if (label_addr & 0xFFFF) >= 0x8000 {
                                             labels.entry(label_addr).or_insert(Label { 
-                                                address: label_addr, 
-                                                name: format!("{}_{:04X}", field.name, label_addr & 0xFFFF_u64), label_type: LabelType::Subroutine, assigned: false });
+                                                address: label_addr,
+                                                name: format!("{}_{:04X}", field.name, label_addr & 0xFFFF_u64),
+                                                label_type: LabelType::Subroutine,
+                                                assigned: false,
+                                                external: false,
+                                            });
                                         }
                                     }
                                     if cur_st_offset == 0 {
@@ -242,7 +267,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config) {
                                                 address: cur_pc,
                                                 name: format!("{}_{:04X}", st.name, cur_pc & 0xFFFF_u64),
                                                 label_type: LabelType::DataTable(0),
-                                                assigned: false
+                                                assigned: false,
+                                                external: false,
                                             });
                                     }
                                 }
