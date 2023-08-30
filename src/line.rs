@@ -7,6 +7,7 @@ use regex::Regex;
 use crate::code::{ArgType, Code};
 use crate::config::Config;
 use crate::data::{Data, DataVal};
+use crate::{FileParsingState, SpecialParsingType};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
 
@@ -14,11 +15,12 @@ use crate::opcode::OPCODES;
 lazy_static! {
     static ref CODE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*([A-Z]{3})\s*(([#\$A-F0-9sxy,()\[\]])*?)\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
     static ref BLOCKMOVE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*(MVN|MVP) [0-9A-F]{2} [0-9A-F]{2}\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
-    static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*;(.*)$").unwrap();
+    static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
     static ref DATA_START_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})(/\$[0-9A-F]{4}|)\s*(|db|dw|dl|dx|dW)\s*((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
     static ref DATA_CONT_REGEX: Regex = Regex::new(r"^\s+((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
     static ref SUB_REGEX: Regex = Regex::new(r"^;;;(.*)\n[\W\w\s]*?^\$([A-Z0-9]{2}:[A-Z0-9]{4})").unwrap();
     static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
+    static ref BRACKETS_REGEX: Regex = Regex::new(r"^\s*([{}])\s*(;.*)?$").unwrap();
 
     /* Having this as a static global like this is a bit of a hack since it relies on parsing in order, but fine for now */
     static ref LAST_DATA_CMD: Mutex<String> = Mutex::new("".to_string());
@@ -28,9 +30,9 @@ lazy_static! {
 #[derive(Debug, Clone)]
 pub enum Line
 {
-    Comment(String),
+    Comment(String), // Also used for raw text in other unhandled lines
     Data(Data),
-    Code(Code)
+    Code(Code),
 }
 
 impl Line {
@@ -44,9 +46,32 @@ impl Line {
 }
 
 impl Line {
-    pub fn parse(line: &str, _config: &Config) -> (Option<u64>, Line) {
+    pub fn parse(line: &str, _config: &Config, file_state: &mut FileParsingState) -> (Option<u64>, Line) {
+        let special_type = file_state.get_modifiers().data_type;
+
         if let Some(cap) = COMMENT_REGEX.captures(line) {
-            (None, Line::Comment(format!(";{}", &cap[1])))
+            if let Some(rest) = line.strip_prefix(";@!") {
+                match rest.trim_end() {
+                    "spritemap" => {
+                        file_state.get_modifiers_mut().set_data_type(SpecialParsingType::Spritemap).unwrap();
+                    }
+                    "spritemap_extended" => {
+                        file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapExtended).unwrap();
+                    }
+                    other => {
+                        panic!("Unknown parsing directive: {}", other);
+                    }
+                }
+            }
+
+            (None, Line::Comment(cap[1].into()))
+        } else if let Some(cap) = BRACKETS_REGEX.captures(line) {
+            match &cap[1] {
+                "{" => file_state.push_context(),
+                "}" => file_state.pop_context().unwrap(), // TODO: Error handling
+                _ => unreachable!(),
+            }
+            (None, Line::Comment(line.into()))
         }
         else if let Some(cap) = FILL_REGEX.captures(line) {
             let (raw_target, raw_pad_byte) = (&cap[2], &cap[3]);
@@ -120,7 +145,7 @@ impl Line {
             };
             
             if code.opcode.name == "BRK" && code.length == 0 {
-                (Some(address), Line::Data(Data { address, data: vec![DataVal::DB(0)], comment }))
+                (Some(address), Line::Data(Data { address, data: vec![DataVal::DB(0)], comment, special_type }))
             } else {
                 (Some(address), Line::Code(code))
             }
@@ -165,11 +190,7 @@ impl Line {
                 _ => panic!("Unknown data type")
             };
 
-            let addr_offset: u64 = data.iter().map(|d| match d {
-                DataVal::DB(_) => 1,
-                DataVal::DW(_) => 2,
-                DataVal::DL(_) => 3
-            }).sum();
+            let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
 
             {
                 let mut lpc = LAST_PC.lock().unwrap();
@@ -179,7 +200,7 @@ impl Line {
                 }                
             }
 
-            (Some(address), Line::Data(Data { address, data, comment }))
+            (Some(address), Line::Data(Data { address, data, comment, special_type }))
             
         } else if let Some(cap) = DATA_CONT_REGEX.captures(line) {
             let (raw_data, raw_comment) = (&cap[1], cap.get(6));
@@ -220,11 +241,7 @@ impl Line {
                     _ => panic!("Unknown data type")
                 };
 
-                let addr_offset: u64 = data.iter().map(|d| match d {
-                    DataVal::DB(_) => 1,
-                    DataVal::DW(_) => 2,
-                    DataVal::DL(_) => 3
-                }).sum();
+                let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
     
                 {
                     let mut lpc = LAST_PC.lock().unwrap();
@@ -234,7 +251,7 @@ impl Line {
                     }                
                 }
 
-                (Some(address), Line::Data(Data { address, data, comment }))
+                (Some(address), Line::Data(Data { address, data, comment, special_type }))
             } else {
                 (None, Line::Comment(raw_data.trim().to_string()))
             }

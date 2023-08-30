@@ -36,15 +36,80 @@ fn is_bulk_data(addr: u32) -> bool {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum SpecialParsingType {
+    Spritemap,
+    SpritemapExtended,
+}
+
+#[derive(Clone)]
+struct ParsingModifiers {
+    data_type: Option<SpecialParsingType>,
+}
+
+impl ParsingModifiers {
+    fn set_data_type(&mut self, new_type: SpecialParsingType) -> Result<(), String> {
+        match &self.data_type {
+            None => {
+                self.data_type = Some(new_type);
+                Ok(())
+            },
+            Some(current_type) => Err(format!("Special data type already set: {:?}", current_type)),
+        }
+    }
+}
+
+impl Default for ParsingModifiers {
+    fn default() -> Self {
+        ParsingModifiers {
+            data_type: None,
+        }
+    }
+}
+
 struct GlobalParsingState {
     pub labels: LabelMap,
 }
 
 impl GlobalParsingState {
-    fn new() -> GlobalParsingState {
+    fn new() -> Self {
         GlobalParsingState {
-            labels: BTreeMap::new(),
+            labels: LabelMap::new(),
         }
+    }
+}
+
+pub struct FileParsingState {
+    modifier_stack: Vec<ParsingModifiers>,
+}
+
+impl FileParsingState {
+    fn new() -> Self {
+        FileParsingState {
+            modifier_stack: vec![ParsingModifiers::default()],
+        }
+    }
+
+    fn get_modifiers(&self) -> &ParsingModifiers {
+        self.modifier_stack.last().unwrap()
+    }
+
+    fn get_modifiers_mut(&mut self) -> &mut ParsingModifiers {
+        self.modifier_stack.last_mut().unwrap()
+    }
+
+    fn pop_context(&mut self) -> Result<(), String> {
+        if self.modifier_stack.len() > 1 {
+            self.modifier_stack.pop().unwrap();
+            Ok(())
+        } else {
+            Err("tried to pop root context".into())
+        }
+    }
+
+    fn push_context(&mut self) {
+        let current_context = self.get_modifiers().clone();
+        self.modifier_stack.push(current_context);
     }
 }
 
@@ -56,6 +121,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut global_state = GlobalParsingState::new();
     let mut lines: BTreeMap<u64, Vec<Line>> = BTreeMap::new();
+
+    println!("Parsing...");
+
     let filenames = glob("./logs/*.asm").unwrap();
     for filename in filenames.flatten() {
         let cap = filename_regex.captures(filename.to_str().unwrap()).unwrap();
@@ -78,15 +146,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let file = File::open(filename).unwrap();
         let reader = BufReader::new(file);
         let mut cur_addr = 0x008000 | ((bank_group.0 as u64) << 16);
+        let mut file_state = FileParsingState::new();
         
         /* Parse the full file into data */
-        for (addr, line) in reader.lines().flatten().map(|l| Line::parse(&l, &config)) {
+        for (addr, line) in reader.lines().flatten().map(|l| Line::parse(&l, &config, &mut file_state)) {
             cur_addr = addr.unwrap_or(cur_addr);
             if !is_bulk_data(cur_addr as u32) {
                 lines.entry(cur_addr).or_insert_with(Vec::new).push(line);
             }
         }
     }
+
+    println!("Indexing...");
     
     /* copy enemy-banks to respective new bank */
     let enemy_banks = vec![0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3];
@@ -122,7 +193,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Line::Data(Data {
                             address: new_data_addr,
                             comment: d.comment.clone(),
-                            data: d.data.clone()
+                            data: d.data.clone(),
+                            special_type: d.special_type,
                         })
                     },
                     Line::Comment(c) => Line::Comment(c.to_string())
@@ -137,6 +209,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     /* Autogenerate labels */
     label::generate_labels(&lines, &config, &mut global_state.labels);
+
+    println!("Generating...");
 
     let mut output_file = File::create("./asm/main.asm").unwrap();
     let _ = writeln !(output_file, "lorom");
