@@ -39,6 +39,7 @@ fn is_bulk_data(addr: u32) -> bool {
 #[derive(Copy, Clone, Debug)]
 pub enum SpecialParsingType {
     Spritemap,
+    SpritemapRaw,
     SpritemapExtended,
 }
 

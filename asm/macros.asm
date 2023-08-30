@@ -22,4 +22,10 @@ macro spritemap_entry(x, y, i_tile, attribs)
 }
 endmacro
 
+macro spritemap_raw(x, y, tile_attribs)
+{
+    dw <x> : db <y> : dw <tile_attribs>
+}
+endmacro
+
 ; ex: %spritemap_entry(0, 0, $107, SPRM_PRIO(3))

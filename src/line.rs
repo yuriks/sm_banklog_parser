@@ -49,6 +49,9 @@ impl Line {
                     "spritemap" => {
                         file_state.get_modifiers_mut().set_data_type(SpecialParsingType::Spritemap).unwrap();
                     }
+                    "spritemap_raw" => {
+                        file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapRaw).unwrap();
+                    }
                     "spritemap_extended" => {
                         file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapExtended).unwrap();
                     }

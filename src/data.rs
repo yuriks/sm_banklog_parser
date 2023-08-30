@@ -132,6 +132,38 @@ impl Data {
         Ok(result)
     }
 
+    pub fn generate_raw_spritemap(&self) -> Result<Vec<String>, String> {
+        let mut result = Vec::new();
+        let mut it = self.data.iter();
+
+        let count = it.next().and_then(|d| d.get_dw()).ok_or("expected dw count")?;
+        result.push(format!("dw ${:04X}", count));
+
+        for i in 0..count {
+            let val1 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 1")?;
+            let val2 = it.next().and_then(|d| d.get_db()).ok_or("expected db value 2")?;
+            let val3 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 3")?;
+
+            // Write 4 entries per line
+            let new_line = (count > 2) && (i % 2 == 0);
+            if new_line {
+                result.push(String::new());
+            }
+            let l = result.last_mut().unwrap();
+            if !new_line {
+                l.push_str(" : ");
+            }
+
+            write!(l, "%spritemap_raw(${:04X}, ${:02X}, ${:04X})", val1, val2, val3).unwrap();
+        }
+
+        if it.next().is_some() {
+            return Err("trailing data".into());
+        }
+
+        Ok(result)
+    }
+
     pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         let mut cur_pc = self.address;
         let mut output_lines = Vec::new();
@@ -139,6 +171,9 @@ impl Data {
         match self.special_type {
             Some(SpecialParsingType::Spritemap) => {
                 output_lines = self.generate_spritemap().expect("invalid spritemap data");
+            },
+            Some(SpecialParsingType::SpritemapRaw) => {
+                output_lines = self.generate_raw_spritemap().expect("invalid spritemap data");
             }
             Some(_) => unimplemented!(),
             None => {
