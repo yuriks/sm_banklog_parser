@@ -1,5 +1,3 @@
-use std::sync::Mutex;
-
 use byteorder::{ByteOrder, LittleEndian};
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -21,10 +19,6 @@ lazy_static! {
     static ref SUB_REGEX: Regex = Regex::new(r"^;;;(.*)\n[\W\w\s]*?^\$([A-Z0-9]{2}:[A-Z0-9]{4})").unwrap();
     static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
     static ref BRACKETS_REGEX: Regex = Regex::new(r"^\s*([{}])\s*(;.*)?$").unwrap();
-
-    /* Having this as a static global like this is a bit of a hack since it relies on parsing in order, but fine for now */
-    static ref LAST_DATA_CMD: Mutex<String> = Mutex::new("".to_string());
-    static ref LAST_PC: Mutex<u64> = Mutex::new(0);
 }
 
 #[derive(Debug, Clone)]
@@ -161,8 +155,7 @@ impl Line {
             };
             
             {
-                let mut ldc = LAST_DATA_CMD.lock().unwrap();
-                *ldc = data_type.to_string();
+                file_state.last_data_cmd = data_type.to_string();
             }
             
             let data_type = "dx";
@@ -192,13 +185,11 @@ impl Line {
 
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
 
-            {
-                let mut lpc = LAST_PC.lock().unwrap();
-                *lpc = address + addr_offset;
-                if (*lpc & 0xFFFF) < 0x8000 {
-                    *lpc |= 0x8000;
-                }                
+            let mut lpc = address + addr_offset;
+            if (lpc & 0xFFFF) < 0x8000 {
+                lpc |= 0x8000;
             }
+            file_state.last_pc = lpc;
 
             (Some(address), Line::Data(Data { address, data, comment, special_type }))
             
@@ -213,7 +204,7 @@ impl Line {
             if raw_data.trim().len() > 1 {
                 let data: Vec<u64> = raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
                 let (_data_type, address) = {
-                    (LAST_DATA_CMD.lock().unwrap().clone(), *LAST_PC.lock().unwrap())
+                    (file_state.last_data_cmd.clone(), file_state.last_pc)
                 };
                 
                 let data_type = "dx";
@@ -243,13 +234,11 @@ impl Line {
 
                 let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
     
-                {
-                    let mut lpc = LAST_PC.lock().unwrap();
-                    *lpc = address + addr_offset;
-                    if (*lpc & 0xFFFF) < 0x8000 {
-                        *lpc |= 0x8000;
-                    }                
+                let mut lpc = address + addr_offset;
+                if (lpc & 0xFFFF) < 0x8000 {
+                    lpc |= 0x8000;
                 }
+                file_state.last_pc = lpc;
 
                 (Some(address), Line::Data(Data { address, data, comment, special_type }))
             } else {

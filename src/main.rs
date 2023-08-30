@@ -81,12 +81,17 @@ impl GlobalParsingState {
 
 pub struct FileParsingState {
     modifier_stack: Vec<ParsingModifiers>,
+
+    last_data_cmd: String,
+    last_pc: u64,
 }
 
 impl FileParsingState {
     fn new() -> Self {
         FileParsingState {
             modifier_stack: vec![ParsingModifiers::default()],
+            last_data_cmd: String::new(),
+            last_pc: 0,
         }
     }
 
