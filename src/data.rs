@@ -44,6 +44,22 @@ impl DataVal {
             DataVal::DL(_) => 3,
         }
     }
+
+    pub fn mnemonic(self) -> &'static str {
+        match self {
+            DataVal::DB(_) => "db",
+            DataVal::DW(_) => "dw",
+            DataVal::DL(_) => "dl",
+        }
+    }
+
+    pub fn to_hex_literal(self) -> String {
+        match self {
+            DataVal::DB(db) => format!("${db:02X}"),
+            DataVal::DW(dw) => format!("${dw:04X}"),
+            DataVal::DL(dl) => format!("${dl:06X}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -214,16 +230,13 @@ impl Data {
                 let mut first_val = true;
 
                 for d in &self.data {
-                    let (data_cmd, data_len) = match d {
-                        DataVal::DB(_) => ("db", 1),
-                        DataVal::DW(_) => ("dw", 2),
-                        DataVal::DL(_) => ("dl", 3)
-                    };
+                    let data_cmd = d.mnemonic();
+                    let data_len = d.length();
 
                     if !first_cmd {
                         if let Some(lbl) = labels.0.get_mut(&cur_pc) {
                             /* There's a label for this address, add it into the data */
-                            output.push_str(&format!(" : {}: ", lbl.name));
+                            write!(&mut output, " : {}: ", lbl.name).unwrap();
                             lbl.assigned.set(true);
                             first_cmd = true;
                             first_val = true;
@@ -232,17 +245,26 @@ impl Data {
                     }
 
                     if data_cmd != last_data_cmd {
-                        output.push_str(&format!("{}{} ", if first_cmd { "" } else { " : " }, data_cmd));
+                        if !first_cmd {
+                            output.push_str(" : ");
+                        }
+                        output.push_str(data_cmd);
+                        output.push(' ');
+
                         last_data_cmd = data_cmd;
-                        first_val = true;
                         first_cmd = false;
+                        first_val = true;
+                    }
+
+                    if !first_val {
+                        output.push(',');
                     }
 
                     if_chain! {
                         if let DataVal::DL(dl) = d;
                         if labels.contains_key(&u64::from(*dl));
                         then {
-                            output.push_str(&format!("{}{}", if first_val { "" } else { "," }, labels[&u64::from(*dl)].name));
+                            output.push_str(&labels[&u64::from(*dl)].name);
                         } else {
                             if_chain! {
                                 if let Some(ov) = config.get_override(cur_pc);
@@ -251,14 +273,10 @@ impl Data {
                                 then {
                                     let db = ov.db.unwrap_or(cur_pc >> 16);
                                     let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
-                                    if labels.contains_key(&label_addr) {
-                                        output.push_str(&format!("{}{}", if first_val { "" } else { "," }, labels[&label_addr].name));
+                                    if let Some(label) = labels.get(&label_addr) {
+                                        output.push_str(&label.name);
                                     } else {
-                                        match d {
-                                            DataVal::DB(db) => output.push_str(&format!("{}${:02X}", if first_val { "" } else { "," }, db)),
-                                            DataVal::DW(dw) => output.push_str(&format!("{}${:04X}", if first_val { "" } else { "," }, dw)),
-                                            DataVal::DL(dl) => output.push_str(&format!("{}${:06X}", if first_val { "" } else { "," }, dl)),
-                                        }
+                                        output.push_str(&d.to_hex_literal());
                                     }
                                 } else {
                                     if_chain! {
@@ -275,20 +293,12 @@ impl Data {
                                             let db = field.db.unwrap_or(cur_pc >> 16);
                                             let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
                                             if field.type_ == "Pointer" && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
-                                                output.push_str(&format!("{}{}", if first_val { "" } else { "," }, labels[&label_addr].name));
+                                                output.push_str(&labels[&label_addr].name);
                                             } else {
-                                                match d {
-                                                    DataVal::DB(db) => output.push_str(&format!("{}${:02X}", if first_val { "" } else { "," }, db)),
-                                                    DataVal::DW(dw) => output.push_str(&format!("{}${:04X}", if first_val { "" } else { "," }, dw)),
-                                                    DataVal::DL(dl) => output.push_str(&format!("{}${:06X}", if first_val { "" } else { "," }, dl)),
-                                                }
+                                                output.push_str(&d.to_hex_literal());
                                             }
                                         } else {
-                                            match d {
-                                                DataVal::DB(db) => output.push_str(&format!("{}${:02X}", if first_val { "" } else { "," }, db)),
-                                                DataVal::DW(dw) => output.push_str(&format!("{}${:04X}", if first_val { "" } else { "," }, dw)),
-                                                DataVal::DL(dl) => output.push_str(&format!("{}${:06X}", if first_val { "" } else { "," }, dl)),
-                                            }
+                                            output.push_str(&d.to_hex_literal());
                                         }
                                     }
                                 }
