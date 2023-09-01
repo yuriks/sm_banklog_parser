@@ -260,51 +260,7 @@ impl Data {
                         output.push(',');
                     }
 
-                    if_chain! {
-                        if let DataVal::DL(dl) = d;
-                        if labels.contains_key(&u64::from(*dl));
-                        then {
-                            output.push_str(&labels[&u64::from(*dl)].name);
-                        } else {
-                            if_chain! {
-                                if let Some(ov) = config.get_override(cur_pc);
-                                if let Some(t) = &ov.type_;
-                                if t == "Pointer" || t == "Data";
-                                then {
-                                    let db = ov.db.unwrap_or(cur_pc >> 16);
-                                    let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
-                                    if let Some(label) = labels.get(&label_addr) {
-                                        output.push_str(&label.name);
-                                    } else {
-                                        output.push_str(&d.to_hex_literal());
-                                    }
-                                } else {
-                                    if_chain! {
-                                        if let Some(ov) = config.get_override(cur_pc);
-                                        if let Some(t) = &ov.type_;
-                                        if t == "Struct";
-                                        if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new()));
-                                        then {
-                                            let last_field = &st.fields[st.fields.len() - 1];
-                                            let st_len = last_field.offset + last_field.length;
-                                            let cur_offset = cur_pc - self.address;
-                                            let cur_st_offset = cur_offset % st_len;
-                                            let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
-                                            let db = field.db.unwrap_or(cur_pc >> 16);
-                                            let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
-                                            if field.type_ == "Pointer" && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
-                                                output.push_str(&labels[&label_addr].name);
-                                            } else {
-                                                output.push_str(&d.to_hex_literal());
-                                            }
-                                        } else {
-                                            output.push_str(&d.to_hex_literal());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    self.emit_data_atom(config, labels, cur_pc, &mut output, *d);
 
                     first_val = false;
                     cur_pc += data_len;
@@ -328,5 +284,55 @@ impl Data {
         }
 
         output
+    }
+
+    fn emit_data_atom(&self, config: &Config, labels: &LabelMap, cur_pc: u64, output: &mut String, d: DataVal) {
+        if_chain! {
+            if let DataVal::DL(dl) = d;
+            if labels.contains_key(&u64::from(dl));
+
+            then {
+                output.push_str(&labels[&u64::from(dl)].name);
+                return;
+            }
+        }
+
+        if_chain! {
+            if let Some(ov) = config.get_override(cur_pc);
+            if let Some(t) = &ov.type_;
+            if t == "Pointer" || t == "Data";
+
+            then {
+                let db = ov.db.unwrap_or(cur_pc >> 16);
+                let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
+                if let Some(label) = labels.get(&label_addr) {
+                    output.push_str(&label.name);
+                    return;
+                }
+            }
+        }
+
+        if_chain! {
+            if let Some(ov) = config.get_override(cur_pc);
+            if let Some(t) = &ov.type_;
+            if t == "Struct";
+            if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new()));
+
+            then {
+                let last_field = &st.fields[st.fields.len() - 1];
+                let st_len = last_field.offset + last_field.length;
+                let cur_offset = cur_pc - self.address;
+                let cur_st_offset = cur_offset % st_len;
+                let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
+                let db = field.db.unwrap_or(cur_pc >> 16);
+                let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
+                if field.type_ == "Pointer" && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
+                    output.push_str(&labels[&label_addr].name);
+                    return;
+                }
+            }
+        }
+
+        output.push_str(&d.to_hex_literal());
     }
 }
