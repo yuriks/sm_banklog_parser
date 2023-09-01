@@ -120,10 +120,10 @@ impl Data {
                 l.push_str("!SPRM_YFLIP");
             }
             if !wrote_flag {
-                l.push_str("0");
+                l.push('0');
             }
 
-            l.push_str(")");
+            l.push(')');
         }
 
         if it.next().is_some() {

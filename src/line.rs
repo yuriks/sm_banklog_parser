@@ -105,7 +105,7 @@ impl Line {
             (None, Line::Comment(format!("padbyte ${:02X} : pad ${:06X}", pad_byte, target)))
         } else if let Some(cap) = BLOCKMOVE_REGEX.captures(line) {
             let (raw_addr, raw_opcode, comment) = (&cap[1], &cap[2], cap.get(9));
-            let address: u64 = u64::from_str_radix(&raw_addr.replace(":", ""), 16).unwrap();
+            let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
             let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
             let opcode = &OPCODES[&opcodes[0]];
             let arg = ArgType::BlockMove(opcodes[1], opcodes[2]);
@@ -123,7 +123,7 @@ impl Line {
             (Some(address), Line::Code(code))
         } else if let Some(cap) = CODE_REGEX.captures(line) {
             let (raw_addr, raw_opcode, _op_name, _op_arg, op_db, comment) = (&cap[1], &cap[2], &cap[4], &cap[5], cap.get(8), cap.get(10));
-            let address: u64 = u64::from_str_radix(&raw_addr.replace(":", ""), 16).unwrap();
+            let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
             let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
             let mut arg_addr: u64 = 0;
             let opcode = &OPCODES[&opcodes[0]];
@@ -175,7 +175,7 @@ impl Line {
             }
         } else if let Some(cap) = DATA_START_REGEX.captures(line) {
             let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[3], &cap[4], cap.get(9));
-            let address: u64 = u64::from_str_radix(&raw_addr.replace(":", ""), 16).unwrap();
+            let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
             let data: Vec<u64> = raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
 
             let comment = match raw_comment {

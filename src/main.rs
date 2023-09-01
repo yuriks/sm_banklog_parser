@@ -49,7 +49,7 @@ pub enum SpecialParsingType {
     InstructionList,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct ParsingModifiers {
     data_type: Option<SpecialParsingType>,
 }
@@ -62,14 +62,6 @@ impl ParsingModifiers {
                 Ok(())
             },
             Some(current_type) => Err(format!("Special data type already set: {:?}", current_type)),
-        }
-    }
-}
-
-impl Default for ParsingModifiers {
-    fn default() -> Self {
-        ParsingModifiers {
-            data_type: None,
         }
     }
 }
@@ -193,7 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if !is_bulk_data(file_state.cur_addr as u32) {
-                lines.entry(file_state.cur_addr).or_insert_with(Vec::new).push(parsed_line);
+                lines.entry(file_state.cur_addr).or_default().push(parsed_line);
             }
         }
     }
@@ -293,7 +285,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if let Some(label) = global_state.labels.get_mut(addr) {
-            writeln!(output_file, "{}{}", label.name, if label.name.starts_with(".") { "" } else { ":" }).unwrap();
+            writeln!(output_file, "{}{}", label.name, if label.name.starts_with('.') { "" } else { ":" }).unwrap();
             label.assigned = true;
         }
 

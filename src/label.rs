@@ -39,10 +39,7 @@ impl Label {
     }
 
     pub fn is_blocked(&self) -> bool {
-        match self.label_type {
-            LabelType::Blocked => true,
-            _ => false,
-        }
+        matches!(self.label_type, LabelType::Blocked)
     }
 }
 
@@ -91,11 +88,11 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             let bank = arg_addr >> 16;
                             let low_addr = arg_addr & 0xFFFF_u64;
                             let (label_addr, prefix) = match low_addr {
-                                0x00..=0xFF if (bank < 0x70 || bank > 0x7F) || bank == 0x7E => (0, ""), // Don't label DP for now
-                                0x100..=0x1FFF if (bank < 0x70 || bank > 0x7F) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM_PTR"),
-                                0x2000..=0x7FFF if bank < 0x40 || bank >= 0x80 => ((low_addr & 0xFFFF), "HW_PTR"),
+                                0x00..=0xFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0, ""), // Don't label DP for now
+                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM_PTR"),
+                                0x2000..=0x7FFF if !(0x40..0x80).contains(&bank) => ((low_addr & 0xFFFF), "HW_PTR"),
                                 _ if bank == 0x7E || bank == 0x7F => (arg_addr, "WRAM_PTR"),
-                                _ if bank >= 0x70 && bank < 0x7E => (arg_addr, "SRAM_PTR"),
+                                _ if (0x70..0x7E).contains(&bank) => (arg_addr, "SRAM_PTR"),
                                 _ => (arg_addr, "PTR")
                             };
                             if label_addr > 0 {
@@ -117,11 +114,11 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             let bank = arg_addr >> 16;
                             let low_addr = arg_addr & 0xFFFF_u64;
                             let (label_addr, prefix) = match low_addr {
-                                0x00..=0xFF if (bank < 0x70 || bank > 0x7F) || bank == 0x7E => (0, ""), // Don't label DP for now
-                                0x100..=0x1FFF if (bank < 0x70 || bank > 0x7F) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM_TBL"),
-                                0x2000..=0x7FFF if bank < 0x40 || bank >= 0x80 => ((low_addr & 0xFFFF), "HW_TBL"),
+                                0x00..=0xFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0, ""), // Don't label DP for now
+                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM_TBL"),
+                                0x2000..=0x7FFF if !(0x40..0x80).contains(&bank) => ((low_addr & 0xFFFF), "HW_TBL"),
                                 _ if bank == 0x7E || bank == 0x7F => (arg_addr, "WRAM_TBL"),
-                                _ if bank >= 0x70 && bank < 0x7E => (arg_addr, "SRAM_TBL"),
+                                _ if (0x70..0x7E).contains(&bank) => (arg_addr, "SRAM_TBL"),
                                 _ => (arg_addr, "TBL")
                             };
                             if label_addr > 0 {
@@ -180,11 +177,11 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             let bank = arg_addr >> 16;
                             let low_addr = arg_addr & 0xFFFF_u64;
                             let (label_addr, prefix) = match low_addr {
-                                0x00..=0xFF if (bank < 0x70 || bank > 0x7F) || bank == 0x7E => (0, ""), // Don't label DP for now
-                                0x100..=0x1FFF if (bank < 0x70 || bank > 0x7F) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM"),
-                                0x2000..=0x7FFF if bank < 0x40 || bank >= 0x80 => ((low_addr & 0xFFFF), "HWREG"),
+                                0x00..=0xFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0, ""), // Don't label DP for now
+                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM"),
+                                0x2000..=0x7FFF if !(0x40..0x80).contains(&bank) => ((low_addr & 0xFFFF), "HWREG"),
                                 _ if bank == 0x7E || bank == 0x7F => (arg_addr, "WRAM"),
-                                _ if bank >= 0x70 && bank < 0x7E => (arg_addr, "SRAM"),
+                                _ if (0x70..0x7E).contains(&bank) => (arg_addr, "SRAM"),
                                 _ if c.opcode.name == "PEA" => (arg_addr + 1, "SUB"),
                                 _ => (arg_addr, "DAT")
                             };
