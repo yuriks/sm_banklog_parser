@@ -15,29 +15,29 @@ pub enum DataVal {
 }
 
 impl DataVal {
-    pub fn get_db(&self) -> Option<u8> {
-        match *self {
+    pub fn get_db(self) -> Option<u8> {
+        match self {
             DataVal::DB(x) => Some(x),
             _ => None,
         }
     }
 
-    pub fn get_dw(&self) -> Option<u16> {
-        match *self {
+    pub fn get_dw(self) -> Option<u16> {
+        match self {
             DataVal::DW(x) => Some(x),
             _ => None,
         }
     }
 
-    pub fn as_u64(&self) -> u64 {
+    pub fn as_u64(self) -> u64 {
         match self {
-            DataVal::DB(b) => *b as u64,
-            DataVal::DW(w) => *w as u64,
-            DataVal::DL(l) => *l as u64
+            DataVal::DB(b) => u64::from(b),
+            DataVal::DW(w) => u64::from(w),
+            DataVal::DL(l) => u64::from(l)
         }
     }
 
-    pub fn length(&self) -> u64 {
+    pub fn length(self) -> u64 {
         match self {
             DataVal::DB(_) => 1,
             DataVal::DW(_) => 2,
@@ -60,7 +60,7 @@ impl Data {
         let mut it = self.data.iter();
 
         let count = it.next().and_then(|d| d.get_dw()).ok_or("expected dw count")?;
-        result.push(format!("dw ${:04X}", count));
+        result.push(format!("dw ${count:04X}"));
 
         for _ in 0..count {
             let val1 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 1")?;
@@ -86,7 +86,7 @@ impl Data {
             let val_xflip = (val3 >> 14) & 1;
             let val_yflip = (val3 >> 15) & 1;
 
-            write!(l, "%spritemap_entry({:3}, {:3}, ${:03X}, ", val_x, val_y, val_tile).unwrap();
+            write!(l, "%spritemap_entry({val_x:3}, {val_y:3}, ${val_tile:03X}, ").unwrap();
 
             let mut wrote_flag = false;
             macro_rules! add_and {
@@ -100,12 +100,12 @@ impl Data {
 
             if val_pal != 0 {
                 wrote_flag = true;
-                write!(l, "SPRM_PAL({})", val_pal).unwrap();
+                write!(l, "SPRM_PAL({val_pal})").unwrap();
             }
 
             if val_prio != 0 {
                 add_and!();
-                write!(l, "SPRM_PRIO({})", val_prio).unwrap();
+                write!(l, "SPRM_PRIO({val_prio})").unwrap();
             }
             if val_large != 0 {
                 add_and!();
@@ -138,7 +138,7 @@ impl Data {
         let mut it = self.data.iter();
 
         let count = it.next().and_then(|d| d.get_dw()).ok_or("expected dw count")?;
-        result.push(format!("dw ${:04X}", count));
+        result.push(format!("dw ${count:04X}"));
 
         for i in 0..count {
             let val1 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 1")?;
@@ -155,7 +155,7 @@ impl Data {
                 l.push_str(" : ");
             }
 
-            write!(l, "%spritemap_raw(${:04X}, ${:02X}, ${:04X})", val1, val2, val3).unwrap();
+            write!(l, "%spritemap_raw(${val1:04X}, ${val2:02X}, ${val3:04X})").unwrap();
         }
 
         if it.next().is_some() {
@@ -174,7 +174,7 @@ impl Data {
 
             let instruction = instruction.get_dw().ok_or("Instruction must be a dw")?;
 
-            let target = (self.address & !0xFFFF) + instruction as Addr;
+            let target = (self.address & !0xFFFF) + Addr::from(instruction);
             let label = labels.get(&target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
             let prototype = match &label.label_type {
                 LabelType::Subroutine => &default_prototype,
@@ -239,13 +239,13 @@ impl Data {
 
                     if_chain! {
                         if let DataVal::DL(dl) = d;
-                        if labels.contains_key(&(*dl as u64));
+                        if labels.contains_key(&u64::from(*dl));
                         then {
-                            output.push_str(&format!("{}{}", if first_val { "" } else { "," }, labels[&(*dl as u64)].name));
+                            output.push_str(&format!("{}{}", if first_val { "" } else { "," }, labels[&u64::from(*dl)].name));
                         } else {
                             if_chain! {
                                 if let Some(ov) = config.get_override(cur_pc);
-                                if let Some(t) = &ov._type;
+                                if let Some(t) = &ov.type_;
                                 if t == "Pointer" || t == "Data";
                                 then {
                                     let db = ov.db.unwrap_or(cur_pc >> 16);
@@ -262,9 +262,9 @@ impl Data {
                                 } else {
                                     if_chain! {
                                         if let Some(ov) = config.get_override(cur_pc);
-                                        if let Some(t) = &ov._type;
+                                        if let Some(t) = &ov.type_;
                                         if t == "Struct";
-                                        if let Some(st) = config.structs.iter().find(|s| &s.name == ov._struct.as_ref().unwrap_or(&"".to_string()));
+                                        if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new()));
                                         then {
                                             let last_field = &st.fields[st.fields.len() - 1];
                                             let st_len = last_field.offset + last_field.length;
@@ -273,7 +273,7 @@ impl Data {
                                             let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
                                             let db = field.db.unwrap_or(cur_pc >> 16);
                                             let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
-                                            if field._type == "Pointer" && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
+                                            if field.type_ == "Pointer" && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
                                                 output.push_str(&format!("{}{}", if first_val { "" } else { "," }, labels[&label_addr].name));
                                             } else {
                                                 match d {
@@ -309,11 +309,11 @@ impl Data {
         if let Some(line0) = it.next() {
             output = format!("    {:<39} ; ${:06X} |", line0, self.address);
             if let Some(comment) = &self.comment {
-                write!(output, " {}", comment).unwrap();
+                write!(output, " {comment}").unwrap();
             }
         }
         for line in it {
-            write!(output, "\n    {:<40}", line).unwrap();
+            write!(output, "\n    {line:<40}").unwrap();
         }
 
         output

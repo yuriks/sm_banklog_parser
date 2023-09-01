@@ -7,7 +7,7 @@ pub struct StructField {
     pub offset: u64,
     pub length: u64,
     #[serde(rename = "type")]
-    pub _type: String,
+    pub type_: String,
     pub db: Option<u64>
 }
 
@@ -38,9 +38,9 @@ pub struct Override {
     pub addr: OverrideAddr,
     pub db: Option<u64>,
     #[serde(rename = "type")]
-    pub _type: Option<String>,
+    pub type_: Option<String>,
     #[serde(rename = "struct")]
-    pub _struct: Option<String>,
+    pub struct_: Option<String>,
     pub opcode: Option<Vec<u64>>,
 }
 
@@ -53,17 +53,17 @@ pub struct Config {
 
 impl Config {
     pub fn load(path: &str) -> Config {
-        let label_filenames = glob(&format!("{}/labels/*.yaml", path)).unwrap();
+        let label_filenames = glob(&format!("{path}/labels/*.yaml")).unwrap();
         let labels: Vec<Label> = label_filenames.flatten()
             .flat_map(|f| serde_yaml::from_str::<Vec<Label>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .collect();
 
-        let override_filenames = glob(&format!("{}/overrides/*.yaml", path)).unwrap();
+        let override_filenames = glob(&format!("{path}/overrides/*.yaml")).unwrap();
         let mut overrides: Vec<Override> = override_filenames.flatten()
             .flat_map(|f| serde_yaml::from_str::<Vec<Override>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .collect();
 
-        let struct_filenames = glob(&format!("{}/structs/*.yaml", path)).unwrap();
+        let struct_filenames = glob(&format!("{path}/structs/*.yaml")).unwrap();
         let structs: Vec<Struct> = struct_filenames.flatten()
             .flat_map(|f| serde_yaml::from_str::<Vec<Struct>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .collect();
@@ -71,14 +71,14 @@ impl Config {
         /* Generate overrides from pointer labels with a length defined */
         let mut generated_overrides: Vec<Override> = labels.iter()
             .filter(|l| {
-                let label_type = l.label_type.clone().unwrap_or("".to_string());
+                let label_type = l.label_type.clone().unwrap_or_default();
                 (label_type == "PointerTable" || label_type == "DataTable") && l.length.unwrap_or(0) > 1
             })
             .map(|l| Override {
                 addr: OverrideAddr::Range(vec![l.addr, l.addr + (l.length.unwrap() * 2)]),
                 db: Some(l.addr >> 16),
-                _struct: None,
-                _type: Some(if l.label_type.clone().unwrap() == "PointerTable" { "Pointer".to_string() } else { "Data".to_string() }),
+                struct_: None,
+                type_: Some(if l.label_type.clone().unwrap() == "PointerTable" { "Pointer".to_string() } else { "Data".to_string() }),
                 opcode: None
             }).collect();
         overrides.append(&mut generated_overrides);

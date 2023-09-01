@@ -30,18 +30,18 @@ impl Code {
             ArgType::Address(addr) => {
                 let label_addr = match self.opcode.addr_mode {
                     AddrMode::Relative => {
-                        ((self.address as i64) + 2 + ((addr & 0xFF) as i8) as i64) as u64
+                        ((self.address as i64) + 2 + i64::from((addr & 0xFF) as i8)) as u64
                     },
                     AddrMode::RelativeLong => {
-                        ((self.address as i64) + 2 + ((addr & 0xFFFF) as i16) as i64) as u64
+                        ((self.address as i64) + 2 + i64::from((addr & 0xFFFF) as i16)) as u64
                     },
                     _ => {
                         match self.length {
-                            1 => 0x7E0000 | (addr & 0xFF),
+                            1 => 0x7E_0000 | (addr & 0xFF),
                             2 => match addr {
-                                0..=0x1FFF => 0x7E0000 | (addr & 0xFFFF),
+                                0..=0x1FFF => 0x7E_0000 | (addr & 0xFFFF),
                                 0x2000..=0x7FFF => addr & 0xFFFF,
-                                _ => ((self.db as u64) << 16) | (addr & 0xFFFF)
+                                _ => (u64::from(self.db) << 16) | (addr & 0xFFFF)
                             },
                             3 => addr,
                             _ => panic!("Invalid argument length")
@@ -86,18 +86,18 @@ impl Code {
                             }
                         } else {
                             match self.length {
-                                1 => format!("${:02X}", addr),
-                                2 => format!("${:04X}", addr),
-                                3 => format!("${:06X}", addr),
+                                1 => format!("${addr:02X}"),
+                                2 => format!("${addr:04X}"),
+                                3 => format!("${addr:06X}"),
                                 _ => panic!("Invalid argument length")
                             }
                         }
                     },
                     None => {
                         match self.length {
-                            1 => format!("${:02X}", addr),
-                            2 => format!("${:04X}", addr),
-                            3 => format!("${:06X}", addr),
+                            1 => format!("${addr:02X}"),
+                            2 => format!("${addr:04X}"),
+                            3 => format!("${addr:06X}"),
                             _ => panic!("Invalid argument length")
                         }
                     }
@@ -106,15 +106,16 @@ impl Code {
                 Some(result)
             },
             ArgType::BlockMove(src, dst) => {
-                Some(format!("${:02X},${:02X}", src, dst))
+                Some(format!("${src:02X},${dst:02X}"))
             },
-            _ => None
+            ArgType::None => None
         }
     }
 }
 
 impl Code {
     //noinspection IncorrectFormatting
+    #[allow(clippy::match_same_arms)]
     pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         let arg_label = self.arg_label(config, labels).unwrap_or_default();
         let opcode = match self.opcode.addr_mode {
@@ -146,7 +147,7 @@ impl Code {
 
         let mut result = format!("    {:<39} ; ${:06X} |", opcode, self.address);
         if let Some(comment) = &self.comment {
-            write!(&mut result, " {}", comment).unwrap();
+            write!(&mut result, " {comment}").unwrap();
         }
 
         result

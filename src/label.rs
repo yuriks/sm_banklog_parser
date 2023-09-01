@@ -73,7 +73,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                     ArgType::Address(arg_addr) => match c.opcode {
                         Opcode { name: "JSR", addr_mode: AddrMode::Absolute, .. } |
                         Opcode { name: "JSL", .. } => {
-                            let label_addr = if c.opcode.name == "JSR" { (addr & 0xFF0000) | (arg_addr & 0xFFFF) } else { arg_addr };
+                            let label_addr = if c.opcode.name == "JSR" { (addr & 0xFF_0000) | (arg_addr & 0xFFFF) } else { arg_addr };
                             Some(Label {
                                 address: label_addr,
                                 name: format!("SUB{}_{:06X}", if c.opcode.name == "JSL" { "L" } else { "" }, label_addr),
@@ -84,12 +84,12 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         },
                         Opcode { addr_mode: AddrMode::AbsoluteIndexedIndirect, .. } => {
                             /* Anything using this is using a table of pointers (generally) */
-                            let arg_addr = ((c.db as u64) << 16) | (arg_addr & 0xFFFF);
+                            let arg_addr = (u64::from(c.db) << 16) | (arg_addr & 0xFFFF);
                             let bank = arg_addr >> 16;
                             let low_addr = arg_addr & 0xFFFF_u64;
                             let (label_addr, prefix) = match low_addr {
                                 0x00..=0xFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0, ""), // Don't label DP for now
-                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM_PTR"),
+                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E_0000 | (low_addr & 0xFFFF), "LORAM_PTR"),
                                 0x2000..=0x7FFF if !(0x40..0x80).contains(&bank) => ((low_addr & 0xFFFF), "HW_PTR"),
                                 _ if bank == 0x7E || bank == 0x7F => (arg_addr, "WRAM_PTR"),
                                 _ if (0x70..0x7E).contains(&bank) => (arg_addr, "SRAM_PTR"),
@@ -98,7 +98,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             if label_addr > 0 {
                                 Some(Label {
                                     address: label_addr,
-                                    name: format!("{}_{:06X}", prefix, label_addr),
+                                    name: format!("{prefix}_{label_addr:06X}"),
                                     label_type: LabelType::PointerTable(0),
                                     assigned: false,
                                     external: false,
@@ -107,15 +107,21 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                 None
                             }
                         },
-                        Opcode { addr_mode: AddrMode::AbsoluteIndexedLong, .. } |
-                        Opcode { addr_mode: AddrMode::AbsoluteIndexedX, .. } |
-                        Opcode { addr_mode: AddrMode::AbsoluteIndexedY, .. } if (arg_addr & 0xFFFF) >= 0x0100 => {
-                            let arg_addr = if c.opcode.addr_mode != AddrMode::AbsoluteLong { ((c.db as u64) << 16) | (arg_addr & 0xFFFF) } else { arg_addr };
+                        Opcode {
+                            addr_mode: AddrMode::AbsoluteIndexedLong
+                            | AddrMode::AbsoluteIndexedX
+                            | AddrMode::AbsoluteIndexedY, ..
+                        } if (arg_addr & 0xFFFF) >= 0x0100 => {
+                            let arg_addr = if c.opcode.addr_mode == AddrMode::AbsoluteLong {
+                                arg_addr
+                            } else {
+                                (u64::from(c.db) << 16) | (arg_addr & 0xFFFF)
+                            };
                             let bank = arg_addr >> 16;
                             let low_addr = arg_addr & 0xFFFF_u64;
                             let (label_addr, prefix) = match low_addr {
                                 0x00..=0xFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0, ""), // Don't label DP for now
-                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM_TBL"),
+                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E_0000 | (low_addr & 0xFFFF), "LORAM_TBL"),
                                 0x2000..=0x7FFF if !(0x40..0x80).contains(&bank) => ((low_addr & 0xFFFF), "HW_TBL"),
                                 _ if bank == 0x7E || bank == 0x7F => (arg_addr, "WRAM_TBL"),
                                 _ if (0x70..0x7E).contains(&bank) => (arg_addr, "SRAM_TBL"),
@@ -124,7 +130,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             if label_addr > 0 {
                                 Some(Label {
                                     address: label_addr,
-                                    name: format!("{}_{:06X}", prefix, label_addr),
+                                    name: format!("{prefix}_{label_addr:06X}"),
                                     label_type: LabelType::DataTable(0),
                                     assigned: false,
                                     external: false,
@@ -136,15 +142,15 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         Opcode { addr_mode: AddrMode::Immediate, .. } => {
                             /* For now, only do this with overrides */
                             if let Some(ov) = config.get_override(*addr) {
-                                let ov_type = ov._type.clone().unwrap_or("".to_string());
+                                let ov_type = ov.type_.clone().unwrap_or(String::new());
                                 if ov_type == "DataTable" || ov_type == "PointerTable" || ov_type == "Pointer" || ov_type == "Data" {
                                     let db = ov.db.unwrap_or(addr >> 16);
                                     let label_addr = (arg_addr & 0xFFFF_u64) | (db << 16);
                                     let (name, label_type) = match ov_type.as_str() {
-                                        "DataTable" => (format!("TBL_{:06X}", label_addr), LabelType::DataTable(0)),
-                                        "PointerTable" => (format!("PTR_{:06X}", label_addr), LabelType::PointerTable(0)),
-                                        "Pointer" => (format!("SUB_{:06X}", label_addr), LabelType::PointerTable(0)),
-                                        _ => (format!("DAT_{:06X}", label_addr), LabelType::Data),
+                                        "DataTable" => (format!("TBL_{label_addr:06X}"), LabelType::DataTable(0)),
+                                        "PointerTable" => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable(0)),
+                                        "Pointer" => (format!("SUB_{label_addr:06X}"), LabelType::PointerTable(0)),
+                                        _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
                                     };
                                     Some(Label {
                                         address: label_addr,
@@ -162,23 +168,26 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         },
                         Opcode { addr_mode: AddrMode::Relative, .. } => {
                             /* Branches */
-                            let label_addr = ((*addr as i64) + 2 + ((arg_addr & 0xFF) as i8) as i64) as u64;
+                            let label_addr = ((*addr as i64) + 2 + i64::from((arg_addr & 0xFF) as i8)) as u64;
                             Some(Label {
                                 address: label_addr,
-                                name: format!("BRA_{:06X}", label_addr),
+                                name: format!("BRA_{label_addr:06X}"),
                                 label_type: LabelType::Branch,
                                 assigned: false,
                                 external: false,
                             })
                         },
-                        Opcode { addr_mode: AddrMode::Absolute, .. } |
-                        Opcode { addr_mode: AddrMode::AbsoluteLong, .. } => {
-                            let arg_addr = if c.opcode.addr_mode != AddrMode::AbsoluteLong { ((c.db as u64) << 16) | (arg_addr & 0xFFFF) } else { arg_addr };
+                        Opcode { addr_mode: AddrMode::Absolute | AddrMode::AbsoluteLong, .. } => {
+                            let arg_addr = if c.opcode.addr_mode == AddrMode::AbsoluteLong {
+                                arg_addr
+                            } else {
+                                (u64::from(c.db) << 16) | (arg_addr & 0xFFFF)
+                            };
                             let bank = arg_addr >> 16;
                             let low_addr = arg_addr & 0xFFFF_u64;
                             let (label_addr, prefix) = match low_addr {
                                 0x00..=0xFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0, ""), // Don't label DP for now
-                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E0000 | (low_addr & 0xFFFF), "LORAM"),
+                                0x100..=0x1FFF if !(0x70..=0x7F).contains(&bank) || bank == 0x7E => (0x7E_0000 | (low_addr & 0xFFFF), "LORAM"),
                                 0x2000..=0x7FFF if !(0x40..0x80).contains(&bank) => ((low_addr & 0xFFFF), "HWREG"),
                                 _ if bank == 0x7E || bank == 0x7F => (arg_addr, "WRAM"),
                                 _ if (0x70..0x7E).contains(&bank) => (arg_addr, "SRAM"),
@@ -189,8 +198,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             if label_addr > 0 {
                                 Some(Label {
                                     address: label_addr,
-                                    name: format!("{}_{:06X}", prefix, label_addr),
-                                    label_type: if prefix != "SUB" { LabelType::Data } else { LabelType::Subroutine },
+                                    name: format!("{prefix}_{label_addr:06X}"),
+                                    label_type: if prefix == "SUB" { LabelType::Subroutine } else { LabelType::Data },
                                     assigned: false,
                                     external: false,
                                 })
@@ -215,17 +224,16 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         /* Handle regular pointer overrides */
                         if_chain! {
                             if let Some(ov) = config.get_override(cur_pc);
-                            if let Some(t) = &ov._type;
+                            if let Some(t) = &ov.type_;
                             if t == "Pointer" || t == "PointerTable" || t == "DataTable" || t == "Data" || t == "Subroutine";
                             then {                                
                                 let db = ov.db.unwrap_or(cur_pc >> 16);
                                 let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
                                 let (name, label_type) = match t.as_str() {
-                                    "Pointer" => (format!("SUB_{:06X}", label_addr), LabelType::Subroutine),
-                                    "Subroutine" => (format!("SUB_{:06X}", label_addr), LabelType::Subroutine),
-                                    "PointerTable" => (format!("PTR_{:06X}", label_addr), LabelType::PointerTable(0)),
-                                    "DataTable" => (format!("TBL_{:06X}", label_addr), LabelType::DataTable(0)),
-                                    _ => (format!("DAT_{:06X}", label_addr), LabelType::Data),
+                                    "Pointer" | "Subroutine" => (format!("SUB_{label_addr:06X}"), LabelType::Subroutine),
+                                    "PointerTable" => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable(0)),
+                                    "DataTable" => (format!("TBL_{label_addr:06X}"), LabelType::DataTable(0)),
+                                    _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
                                 };
 
                                 labels.entry(label_addr).or_insert(Label { 
@@ -241,16 +249,16 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         /* Handle struct overrides */
                         if_chain! {
                             if let Some(ov) = config.get_override(cur_pc);
-                            if let Some(t) = &ov._type;
+                            if let Some(t) = &ov.type_;
                             if t == "Struct";
                             then {
-                                if let Some(st) = config.structs.iter().find(|s| &s.name == ov._struct.as_ref().unwrap_or(&"".to_string())) {                                    
+                                if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new())) {
                                     let last_field = &st.fields[st.fields.len() - 1];
                                     let st_len = last_field.offset + last_field.length;
                                     let cur_offset = cur_pc - data.address;
                                     let cur_st_offset = cur_offset % st_len;
                                     let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
-                                    if field._type == "Pointer" {
+                                    if field.type_ == "Pointer" {
                                         let db = field.db.unwrap_or(cur_pc >> 16);                                    
                                         let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
                                         if (label_addr & 0xFFFF) >= 0x8000 {
@@ -282,7 +290,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                     }
                     None
                 }
-                _ => None
+                Line::Comment(_) => None
             };
 
             if let Some(label) = label {

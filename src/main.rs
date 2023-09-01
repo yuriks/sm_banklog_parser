@@ -1,3 +1,12 @@
+#![warn(clippy::pedantic)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::no_effect_underscore_binding)]
+
 use std::{collections::BTreeMap, fs::File, io::{BufRead, BufReader, Write}};
 use std::collections::btree_map::Entry;
 
@@ -22,6 +31,7 @@ mod directives;
 pub type Addr = u64;
 
 fn is_bulk_data(addr: u32) -> bool {
+    #[allow(clippy::match_same_arms)]
     match addr {
         0x87_8564..=0x87_FFFF => true, // Animated tiles
         0x89_8000..=0x89_90FF => true, // Item PLM graphics
@@ -61,7 +71,7 @@ impl ParsingModifiers {
                 self.data_type = Some(new_type);
                 Ok(())
             },
-            Some(current_type) => Err(format!("Special data type already set: {:?}", current_type)),
+            Some(current_type) => Err(format!("Special data type already set: {current_type:?}")),
         }
     }
 }
@@ -122,11 +132,11 @@ impl FileParsingState {
     }
 
     fn addr_in_current_bank(&self, word_addr: u16) -> Addr {
-        (self.cur_addr & !0xFFFF) + word_addr as Addr
+        (self.cur_addr & !0xFFFF) + Addr::from(word_addr)
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let filename_regex = Regex::new(r"Bank \$([0-9A-F]{2})(\.\.\$([0-9A-F]{2})|)").unwrap();
     let mut bank_groups: Vec<(u8, u8)> = Vec::new();
     let config = config::Config::load("./config/");
@@ -143,10 +153,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bank_group =
             (u8::from_str_radix(&cap[1], 16).unwrap(),
              if let Some(c) = cap.get(3) {
-                 if !c.as_str().trim().is_empty() {
-                     u8::from_str_radix(c.as_str(), 16).unwrap()
-                 } else {
+                 if c.as_str().trim().is_empty() {
                      u8::from_str_radix(&cap[1], 16).unwrap()
+                 } else {
+                     u8::from_str_radix(c.as_str(), 16).unwrap()
                  }
              } else {
                  u8::from_str_radix(&cap[1], 16).unwrap()
@@ -157,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let file = File::open(filename).unwrap();
         let reader = BufReader::new(file);
-        let mut file_state = FileParsingState::new(((bank_group.0 as u64) << 16) + 0x8000);
+        let mut file_state = FileParsingState::new((u64::from(bank_group.0) << 16) + 0x8000);
 
         /* Parse the full file into data */
         for line in reader.lines() {
@@ -194,7 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     /* copy enemy-banks to respective new bank */
     let enemy_banks = vec![0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3];
-    let enemy_lines: BTreeMap<u64, Vec<Line>> = lines.iter().filter(|(k, _)| **k >= 0xA08000 && **k <= 0xA08686).map(|(k, v)| (*k, v.clone())).collect();
+    let enemy_lines: BTreeMap<u64, Vec<Line>> = lines.iter().filter(|(k, _)| **k >= 0xA0_8000 && **k <= 0xA0_8686).map(|(k, v)| (*k, v.clone())).collect();
     for addr_line in &enemy_lines {
         for bank in &enemy_banks {
             let mut new_lines = Vec::new();
@@ -217,7 +227,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Entry::Vacant(e) => {
                                     e.insert(Label {
                                         address: new_addr,
-                                        name: format!("SUB_{:06X}", new_addr),
+                                        name: format!("SUB_{new_addr:06X}"),
                                         label_type: LabelType::Instruction(instr_proto.clone()),
                                         assigned: false,
                                         external: false,
@@ -264,7 +274,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = writeln!(output_file, "lorom");
     let _ = writeln!(output_file, "incsrc labels.asm");
     for group in 0x80..0xE0 {
-        let _ = writeln!(output_file, "incsrc bank_{:02x}.asm", group);
+        let _ = writeln!(output_file, "incsrc bank_{group:02x}.asm");
     }
 
     let mut cur_bank = 0;
@@ -272,16 +282,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bank = (addr >> 16) as u8;
 
         if bank != cur_bank {
-            let first_entry = if let Some(e) = lines.iter().find(|(k, v)| **k >= (((bank as u64) << 16) | 0x8000) && v.iter().any(|l| matches!(l, Line::Code(_) | Line::Data(_)))) {
-                e
-            } else {
-                continue;
-            };
-            let first_address = if (first_entry.0 >> 16) == bank as u64 { first_entry.0 } else { addr };
+            let Some(first_entry) = lines.iter()
+                .find(|(k, v)| {
+                    **k >= ((u64::from(bank) << 16) | 0x8000)
+                        && v.iter().any(|l| matches!(l, Line::Code(_) | Line::Data(_)))
+                })
+                else { continue; };
+            let first_address = if (first_entry.0 >> 16) == u64::from(bank) { first_entry.0 } else { addr };
 
             cur_bank = bank;
-            output_file = File::create(format!("./asm/bank_{:02x}.asm", cur_bank)).unwrap();
-            let _ = writeln!(output_file, "org ${:06X}", first_address);
+            output_file = File::create(format!("./asm/bank_{cur_bank:02x}.asm")).unwrap();
+            let _ = writeln!(output_file, "org ${first_address:06X}");
         }
 
         if let Some(label) = global_state.labels.get_mut(addr) {
@@ -309,6 +320,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (a, l) in global_state.labels.iter().filter(|(_, l)| l.assigned && l.external && !l.is_blocked()) {
         let _ = writeln!(output_file, "{} = ${:06X}", l.name, a);
     }
-
-    Ok(())
 }

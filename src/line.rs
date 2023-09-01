@@ -69,7 +69,7 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 
             file_state.prefixed_instruction_directive = Some(InstructionPrototype { params });
         }
-        _ => return Err(format!("Unknown parsing directive: {}", line)),
+        _ => return Err(format!("Unknown parsing directive: {line}")),
     }
 
     Ok(())
@@ -81,13 +81,13 @@ impl Line {
 
         if let Some(cap) = SUB_REGEX.captures(line) {
             let addr = u16::from_str_radix(&cap["addr"], 16).unwrap(); // TODO: Error handling
-            let _desc = &cap["desc"];
+            // let _desc = &cap["desc"];
             let full_addr = file_state.addr_in_current_bank(addr);
             (Some(full_addr), Line::Comment(line.into()))
         } else if let Some(cap) = COMMENT_REGEX.captures(line) {
             if let Some(rest) = line.strip_prefix(";@!") {
                 if let Err(s) = process_directive(rest, file_state) {
-                    eprintln!("{}", s);
+                    eprintln!("{s}");
                 }
             }
             (None, Line::Comment(cap[1].into()))
@@ -102,7 +102,7 @@ impl Line {
             let (raw_target, raw_pad_byte) = (&cap[2], &cap[3]);
             let target = u64::from_str_radix(raw_target, 16).unwrap();
             let pad_byte = u8::from_str_radix(raw_pad_byte, 16).unwrap();
-            (None, Line::Comment(format!("padbyte ${:02X} : pad ${:06X}", pad_byte, target)))
+            (None, Line::Comment(format!("padbyte ${pad_byte:02X} : pad ${target:06X}")))
         } else if let Some(cap) = BLOCKMOVE_REGEX.captures(line) {
             let (raw_addr, raw_opcode, comment) = (&cap[1], &cap[2], cap.get(9));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
@@ -134,9 +134,9 @@ impl Line {
                     ArgType::None
                 } else {
                     arg_addr = match length {
-                        1 => opcodes[1] as u64,
-                        2 => LittleEndian::read_u16(&opcodes[1..3]) as u64,
-                        3 => LittleEndian::read_u24(&opcodes[1..4]) as u64,
+                        1 => u64::from(opcodes[1]),
+                        2 => u64::from(LittleEndian::read_u16(&opcodes[1..3])),
+                        3 => u64::from(LittleEndian::read_u24(&opcodes[1..4])),
                         _ => panic!("Invalid opcode length")
                     };
 
@@ -176,7 +176,7 @@ impl Line {
         } else if let Some(cap) = DATA_START_REGEX.captures(line) {
             let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[3], &cap[4], cap.get(9));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
-            let data: Vec<u64> = raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
+            let data: Vec<u64> = raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
 
             let comment = match raw_comment {
                 Some(c) if c.as_str().len() > 1 => Some(c.as_str().trim().to_owned()),
@@ -195,16 +195,16 @@ impl Line {
                 "dl" => data.iter().map(|d| DataVal::DL(*d as u32)).collect(),
                 "dx" => {
                     let mut dx_data: Vec<DataVal> = Vec::new();
-                    for d in raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()) {
+                    for d in raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()) {
                         match d.len() {
                             2 => dx_data.push(DataVal::DB(u8::from_str_radix(d, 16).unwrap())),
                             4 => dx_data.push(DataVal::DW(u16::from_str_radix(d, 16).unwrap())),
                             6 => dx_data.push(DataVal::DL(u32::from_str_radix(d, 16).unwrap())),
                             8 => {
                                 dx_data.push(DataVal::DW(u16::from_str_radix(&d[0..2], 16).unwrap()));
-                                dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()))
+                                dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()));
                             },
-                            _ => panic!("Invalid dx value length: {:?}", line)
+                            _ => panic!("Invalid dx value length: {line:?}")
                         }
                     }
                     dx_data
@@ -230,7 +230,7 @@ impl Line {
             };
 
             if raw_data.trim().len() > 1 {
-                let data: Vec<u64> = raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
+                let data: Vec<u64> = raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
                 let (_data_type, address) = {
                     (file_state.last_data_cmd.clone(), file_state.last_pc)
                 };
@@ -243,14 +243,14 @@ impl Line {
                     "dl" => data.iter().map(|d| DataVal::DL(*d as u32)).collect(),
                     "dx" => {
                         let mut dx_data: Vec<DataVal> = Vec::new();
-                        for d in raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()) {
+                        for d in raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()) {
                             match d.len() {
                                 2 => dx_data.push(DataVal::DB(u8::from_str_radix(d, 16).unwrap())),
                                 4 => dx_data.push(DataVal::DW(u16::from_str_radix(d, 16).unwrap())),
                                 6 => dx_data.push(DataVal::DL(u32::from_str_radix(d, 16).unwrap())),
                                 8 => {
                                     dx_data.push(DataVal::DW(u16::from_str_radix(&d[0..2], 16).unwrap()));
-                                    dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()))
+                                    dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()));
                                 },
                                 _ => panic!("Invalid dx value length")
                             }
