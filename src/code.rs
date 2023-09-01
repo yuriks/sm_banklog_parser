@@ -50,31 +50,31 @@ impl Code {
                 };
 
                 let label = {
-                    if labels.contains_key(&label_addr) {
-                        (Some(labels.get_mut(&label_addr).unwrap()), 0)
+                    if let Some(label) = labels.get_mut(&label_addr) {
+                        Some((label, 0))
                     } else if self.opcode.addr_mode != AddrMode::Relative &&
-                                self.opcode.addr_mode != AddrMode::RelativeLong &&
-                                self.opcode.name != "JSR" &&
-                                self.opcode.name != "JSL"
-                        {
+                        self.opcode.addr_mode != AddrMode::RelativeLong &&
+                        self.opcode.name != "JSR" &&
+                        self.opcode.name != "JSL"
+                    {
                         if labels.contains_key(&(label_addr - 1)) {
-                            (Some(labels.get_mut(&(label_addr - 1)).unwrap()), -1)
+                            Some((labels.get_mut(&(label_addr - 1)).unwrap(), -1))
                         } else if labels.contains_key(&(label_addr + 1)) {
-                            (Some(labels.get_mut(&(label_addr + 1)).unwrap()), 1)
+                            Some((labels.get_mut(&(label_addr + 1)).unwrap(), 1))
                         } else if labels.contains_key(&(label_addr - 2)) {
-                            (Some(labels.get_mut(&(label_addr - 2)).unwrap()), -2)
+                            Some((labels.get_mut(&(label_addr - 2)).unwrap(), -2))
                         } else if labels.contains_key(&(label_addr + 2)) {
-                            (Some(labels.get_mut(&(label_addr + 2)).unwrap()), 2)
+                            Some((labels.get_mut(&(label_addr + 2)).unwrap(), 2))
                         } else {
-                            (None, 0)                         
+                            None
                         }
                     } else {
-                        (None, 0)    
+                        None
                     }
                 };
 
                 let result = match label {
-                    (Some(l), offset) => {
+                    Some((l, offset)) => {
                         l.use_from(self.address);
 
                         if (((self.opcode.addr_mode == AddrMode::Immediate || self.opcode.addr_mode == AddrMode::ImmediateByte) && config.get_override(self.address).is_some()) || (self.opcode.addr_mode != AddrMode::Immediate && self.opcode.addr_mode != AddrMode::ImmediateByte)) && !l.is_blocked() {
@@ -90,10 +90,10 @@ impl Code {
                                 2 => format!("${:04X}", addr),
                                 3 => format!("${:06X}", addr),
                                 _ => panic!("Invalid argument length")
-                            }                                
+                            }
                         }
                     },
-                    (None, _) => {
+                    None => {
                         match self.length {
                             1 => format!("${:02X}", addr),
                             2 => format!("${:04X}", addr),
@@ -114,6 +114,7 @@ impl Code {
 }
 
 impl Code {
+    //noinspection IncorrectFormatting
     pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         let arg_label = self.arg_label(config, labels).unwrap_or_default();
         let opcode = match self.opcode.addr_mode {

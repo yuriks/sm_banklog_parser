@@ -5,6 +5,9 @@ use if_chain::if_chain;
 use crate::{code::ArgType, config::Config, data::DataVal, line::Line, opcode::{AddrMode, Opcode}};
 use crate::directives::InstructionPrototype;
 
+//pub struct LabelMap {
+//    inner: BTreeMap<u64, Label>,
+//}
 pub type LabelMap = BTreeMap<u64, Label>;
 
 #[derive(Debug)]
@@ -57,10 +60,10 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
             _ => LabelType::Undefined
         };
 
-        labels.entry(label.addr).or_insert(Label { 
-            address: label.addr, 
-            name: label.name.clone(), 
-            label_type, 
+        labels.entry(label.addr).or_insert(Label {
+            address: label.addr,
+            name: label.name.clone(),
+            label_type,
             assigned: false,
             external: false,
         });
@@ -102,10 +105,10 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                     label_type: LabelType::PointerTable(0),
                                     assigned: false,
                                     external: false,
-                                })                 
+                                })
                             } else {
                                 None
-                            }                                
+                            }
                         },
                         Opcode { addr_mode: AddrMode::AbsoluteIndexedLong, .. } |
                         Opcode { addr_mode: AddrMode::AbsoluteIndexedX, .. } |
@@ -128,16 +131,16 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                     label_type: LabelType::DataTable(0),
                                     assigned: false,
                                     external: false,
-                                })                 
+                                })
                             } else {
                                 None
-                            }             
+                            }
                         },
                         Opcode { addr_mode: AddrMode::Immediate, .. } => {
                             /* For now, only do this with overrides */
                             if let Some(ov) = config.get_override(*addr) {
                                 let ov_type = ov._type.clone().unwrap_or("".to_string());
-                                if  ov_type == "DataTable" || ov_type == "PointerTable" || ov_type == "Pointer" || ov_type == "Data" {
+                                if ov_type == "DataTable" || ov_type == "PointerTable" || ov_type == "Pointer" || ov_type == "Data" {
                                     let db = ov.db.unwrap_or(addr >> 16);
                                     let label_addr = (arg_addr & 0xFFFF_u64) | (db << 16);
                                     let (name, label_type) = match ov_type.as_str() {
@@ -162,14 +165,14 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         },
                         Opcode { addr_mode: AddrMode::Relative, .. } => {
                             /* Branches */
-                            let label_addr = ((*addr as i64) + 2 + (((arg_addr & 0xFF) as i8)) as i64) as u64;
+                            let label_addr = ((*addr as i64) + 2 + ((arg_addr & 0xFF) as i8) as i64) as u64;
                             Some(Label {
                                 address: label_addr,
                                 name: format!("BRA_{:06X}", label_addr),
                                 label_type: LabelType::Branch,
                                 assigned: false,
                                 external: false,
-                            })                            
+                            })
                         },
                         Opcode { addr_mode: AddrMode::Absolute, .. } |
                         Opcode { addr_mode: AddrMode::AbsoluteLong, .. } => {
@@ -190,7 +193,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                 Some(Label {
                                     address: label_addr,
                                     name: format!("{}_{:06X}", prefix, label_addr),
-                                    label_type: if prefix != "SUB" { LabelType::Data } else { LabelType::Subroutine }, 
+                                    label_type: if prefix != "SUB" { LabelType::Data } else { LabelType::Subroutine },
                                     assigned: false,
                                     external: false,
                                 })
@@ -211,7 +214,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             DataVal::DW(_) => 2,
                             DataVal::DL(_) => 3
                         };
-                              
+
                         /* Handle regular pointer overrides */
                         if_chain! {
                             if let Some(ov) = config.get_override(cur_pc);
@@ -280,22 +283,24 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
 
                         cur_pc += data_len;
                     }
-                    None                    
+                    None
                 }
-                _ => None            
+                _ => None
             };
 
             if let Some(label) = label {
                 if let LabelType::DataTable(_) = label.label_type {
-                    if !labels.contains_key(&(label.address - 1)) && !labels.contains_key(&(label.address + 1)) && 
-                       !labels.contains_key(&(label.address - 2)) && !labels.contains_key(&(label.address + 2)) {
-                            labels.entry(label.address).or_insert(label);
-                       }
+                    if !labels.contains_key(&(label.address - 1)) && !labels.contains_key(&(label.address + 1)) &&
+                        !labels.contains_key(&(label.address - 2)) && !labels.contains_key(&(label.address + 2))
+                    {
+                        labels.entry(label.address).or_insert(label);
+                    }
                 } else if let LabelType::PointerTable(_) = label.label_type {
-                    if !labels.contains_key(&(label.address - 1)) && !labels.contains_key(&(label.address + 1)) && 
-                       !labels.contains_key(&(label.address - 2)) && !labels.contains_key(&(label.address + 2)) {
-                            labels.entry(label.address).or_insert(label);
-                       }
+                    if !labels.contains_key(&(label.address - 1)) && !labels.contains_key(&(label.address + 1)) &&
+                        !labels.contains_key(&(label.address - 2)) && !labels.contains_key(&(label.address + 2))
+                    {
+                        labels.entry(label.address).or_insert(label);
+                    }
                 } else {
                     labels.entry(label.address).or_insert(label);
                 }

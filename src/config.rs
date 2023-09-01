@@ -37,9 +37,9 @@ pub enum OverrideAddr {
 pub struct Override {
     pub addr: OverrideAddr,
     pub db: Option<u64>,
-    #[serde(rename ="type")]
+    #[serde(rename = "type")]
     pub _type: Option<String>,
-    #[serde(rename ="struct")]
+    #[serde(rename = "struct")]
     pub _struct: Option<String>,
     pub opcode: Option<Vec<u64>>,
 }
@@ -53,17 +53,17 @@ pub struct Config {
 
 impl Config {
     pub fn load(path: &str) -> Config {
-        let label_filenames = glob(&format!("{}/labels/*.yaml", path)).unwrap();        
+        let label_filenames = glob(&format!("{}/labels/*.yaml", path)).unwrap();
         let labels: Vec<Label> = label_filenames.flatten()
             .map(|f| serde_yaml::from_str::<Vec<Label>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .flatten().collect();
 
-        let override_filenames = glob(&format!("{}/overrides/*.yaml", path)).unwrap();        
+        let override_filenames = glob(&format!("{}/overrides/*.yaml", path)).unwrap();
         let mut overrides: Vec<Override> = override_filenames.flatten()
             .map(|f| serde_yaml::from_str::<Vec<Override>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .flatten().collect();
 
-        let struct_filenames = glob(&format!("{}/structs/*.yaml", path)).unwrap();        
+        let struct_filenames = glob(&format!("{}/structs/*.yaml", path)).unwrap();
         let structs: Vec<Struct> = struct_filenames.flatten()
             .map(|f| serde_yaml::from_str::<Vec<Struct>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .flatten().collect();
@@ -85,7 +85,7 @@ impl Config {
 
         Config { labels, overrides, structs }
     }
-    
+
     pub fn get_override(&self, addr: u64) -> Option<&Override> {
         self.overrides.iter().find(|o| match &o.addr {
             OverrideAddr::Address(a) if *a == addr => true,

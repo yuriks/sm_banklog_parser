@@ -9,7 +9,11 @@ use nom::sequence::delimited;
 
 #[derive(Debug, Copy, Clone)]
 pub enum InstructionParameter {
-    Byte, Word, Addr, LongAddr, VramAddr,
+    Byte,
+    Word,
+    Addr,
+    LongAddr,
+    VramAddr,
 }
 
 #[derive(Debug, Clone)]

@@ -317,5 +317,5 @@ impl Data {
         }
 
         output
-    }    
+    }
 }

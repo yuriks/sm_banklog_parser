@@ -25,7 +25,8 @@ lazy_static! {
 #[derive(Debug, Clone)]
 pub enum Line
 {
-    Comment(String), // Also used for raw text in other unhandled lines
+    // Also used for raw text in other unhandled lines
+    Comment(String),
     Data(Data),
     Code(Code),
 }
@@ -97,20 +98,18 @@ impl Line {
                 _ => unreachable!(),
             }
             (None, Line::Comment(line.into()))
-        }
-        else if let Some(cap) = FILL_REGEX.captures(line) {
+        } else if let Some(cap) = FILL_REGEX.captures(line) {
             let (raw_target, raw_pad_byte) = (&cap[2], &cap[3]);
             let target = u64::from_str_radix(raw_target, 16).unwrap();
             let pad_byte = u8::from_str_radix(raw_pad_byte, 16).unwrap();
             (None, Line::Comment(format!("padbyte ${:02X} : pad ${:06X}", pad_byte, target)))
-        }
-        else if let Some(cap) = BLOCKMOVE_REGEX.captures(line) {
+        } else if let Some(cap) = BLOCKMOVE_REGEX.captures(line) {
             let (raw_addr, raw_opcode, comment) = (&cap[1], &cap[2], cap.get(9));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(":", ""), 16).unwrap();
             let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
             let opcode = &OPCODES[&opcodes[0]];
-            let arg = ArgType::BlockMove(opcodes[1] as u8, opcodes[2] as u8);
-            
+            let arg = ArgType::BlockMove(opcodes[1], opcodes[2]);
+
             let code = Code {
                 address,
                 opcode,
@@ -122,9 +121,7 @@ impl Line {
             };
 
             (Some(address), Line::Code(code))
-
-        }
-        else if let Some(cap) = CODE_REGEX.captures(line) {
+        } else if let Some(cap) = CODE_REGEX.captures(line) {
             let (raw_addr, raw_opcode, _op_name, _op_arg, op_db, comment) = (&cap[1], &cap[2], &cap[4], &cap[5], cap.get(8), cap.get(10));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(":", ""), 16).unwrap();
             let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
@@ -143,7 +140,7 @@ impl Line {
                         _ => panic!("Invalid opcode length")
                     };
 
-                    ArgType::Address(arg_addr)                    
+                    ArgType::Address(arg_addr)
                 }
             };
 
@@ -156,7 +153,7 @@ impl Line {
                     }
                 } else {
                     ((address >> 16) & 0xFF) as u8
-                }                    
+                }
             };
 
             let comment = comment.map(|c| c.as_str()[1..].to_owned());
@@ -170,13 +167,12 @@ impl Line {
                 comment: comment.clone(),
                 instruction_prototype: file_state.prefixed_instruction_directive.take(),
             };
-            
+
             if code.opcode.name == "BRK" && code.length == 0 {
                 (Some(address), Line::Data(Data { address, data: vec![DataVal::DB(0)], comment, special_type }))
             } else {
                 (Some(address), Line::Code(code))
             }
-
         } else if let Some(cap) = DATA_START_REGEX.captures(line) {
             let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[3], &cap[4], cap.get(9));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(":", ""), 16).unwrap();
@@ -186,11 +182,11 @@ impl Line {
                 Some(c) if c.as_str().len() > 1 => Some(c.as_str().trim().to_owned()),
                 _ => None
             };
-            
+
             {
                 file_state.last_data_cmd = data_type.to_string();
             }
-            
+
             let data_type = "dx";
 
             let data = match data_type.to_lowercase().as_str() {
@@ -225,21 +221,20 @@ impl Line {
             file_state.last_pc = lpc;
 
             (Some(address), Line::Data(Data { address, data, comment, special_type }))
-            
         } else if let Some(cap) = DATA_CONT_REGEX.captures(line) {
             let (raw_data, raw_comment) = (&cap[1], cap.get(6));
-            
+
             let comment = match raw_comment {
                 Some(c) if c.as_str().len() > 1 => Some(c.as_str().trim().to_owned()),
                 _ => None
             };
-            
+
             if raw_data.trim().len() > 1 {
                 let data: Vec<u64> = raw_data.split(',').map(|d| d.trim()).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
                 let (_data_type, address) = {
                     (file_state.last_data_cmd.clone(), file_state.last_pc)
                 };
-                
+
                 let data_type = "dx";
 
                 let data = match data_type.to_lowercase().as_str() {
@@ -257,7 +252,7 @@ impl Line {
                                     dx_data.push(DataVal::DW(u16::from_str_radix(&d[0..2], 16).unwrap()));
                                     dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()))
                                 },
-                                    _ => panic!("Invalid dx value length")
+                                _ => panic!("Invalid dx value length")
                             }
                         }
                         dx_data
@@ -266,7 +261,7 @@ impl Line {
                 };
 
                 let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
-    
+
                 let mut lpc = address + addr_offset;
                 if (lpc & 0xFFFF) < 0x8000 {
                     lpc |= 0x8000;
@@ -280,7 +275,6 @@ impl Line {
         } else {
             (None, Line::Comment(line.to_string()))
         }
-
     }
 }
 
