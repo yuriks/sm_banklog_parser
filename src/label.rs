@@ -3,13 +3,15 @@ use std::collections::BTreeMap;
 use if_chain::if_chain;
 
 use crate::{code::ArgType, config::Config, data::DataVal, line::Line, opcode::{AddrMode, Opcode}};
+use crate::directives::InstructionPrototype;
 
 pub type LabelMap = BTreeMap<u64, Label>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum LabelType {
     Undefined,
     Subroutine,
+    Instruction(InstructionPrototype),
     Branch,
     Data,
     PointerTable(u64),
@@ -30,6 +32,13 @@ impl Label {
     pub fn use_from(&mut self, use_addr: u64) {
         if use_addr >> 16 != self.address >> 16 {
             self.external = true;
+        }
+    }
+
+    pub fn is_blocked(&self) -> bool {
+        match self.label_type {
+            LabelType::Blocked => true,
+            _ => false,
         }
     }
 }

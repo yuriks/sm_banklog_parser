@@ -14,3 +14,4 @@ glob = "0.3.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
 if_chain = "1.0.2"
+nom = "7.1.3"

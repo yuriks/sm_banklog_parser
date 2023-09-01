@@ -2,9 +2,10 @@ use std::fmt::Write;
 
 use if_chain::if_chain;
 
+use crate::{Addr, SpecialParsingType};
 use crate::config::Config;
-use crate::label::LabelMap;
-use crate::SpecialParsingType;
+use crate::directives::InstructionPrototype;
+use crate::label::{LabelMap, LabelType};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DataVal {
@@ -164,6 +165,32 @@ impl Data {
         Ok(result)
     }
 
+    fn generate_instruction_list(&self, labels: &LabelMap) -> Result<Vec<String>, String> {
+        let mut result = Vec::new();
+
+        let mut it = self.data.iter();
+        while let Some(instruction) = it.next() {
+            let default_prototype = InstructionPrototype { params: Vec::new() };
+
+            let instruction = instruction.get_dw().ok_or("Instruction must be a dw")?;
+
+            let target = (self.address & !0xFFFF) + instruction as Addr;
+            let label = labels.get(&target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
+            let prototype = match &label.label_type {
+                LabelType::Subroutine => &default_prototype,
+                LabelType::Instruction(p) => p,
+                _ => return Err(format!("Instruction label ${target:06X} isn't subroutine or instruction")),
+            };
+
+            for _param in &prototype.params {
+                let _arg = it.next().ok_or("missing argument")?;
+            }
+            result.push("; instruction".into());
+        }
+
+        Ok(result)
+    }
+
     pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         let mut cur_pc = self.address;
         let mut output_lines = Vec::new();
@@ -175,6 +202,10 @@ impl Data {
             Some(SpecialParsingType::SpritemapRaw) => {
                 output_lines = self.generate_raw_spritemap().expect("invalid spritemap data");
             }
+            Some(SpecialParsingType::InstructionList) => {
+                output_lines = self.generate_instruction_list(labels).expect("invalid instruction list data");
+                output_lines.push(Data { special_type: None, ..self.clone() }.to_string(config, labels));
+            },
             Some(_) => unimplemented!(),
             None => {
                 let mut output = String::new();

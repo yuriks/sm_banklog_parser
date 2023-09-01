@@ -1,4 +1,5 @@
 use std::{collections::BTreeMap, fs::File, io::{BufRead, BufReader, Write}};
+use std::collections::btree_map::Entry;
 
 use glob::glob;
 use regex::Regex;
@@ -7,7 +8,8 @@ use code::{ArgType, Code};
 use data::Data;
 use line::Line;
 
-use crate::label::{LabelMap, LabelType};
+use crate::directives::InstructionPrototype;
+use crate::label::{Label, LabelMap, LabelType};
 
 mod code;
 mod opcode;
@@ -15,6 +17,9 @@ mod data;
 mod label;
 mod line;
 mod config;
+mod directives;
+
+pub type Addr = u64;
 
 fn is_bulk_data(addr: u32) -> bool {
     match addr {
@@ -41,6 +46,7 @@ pub enum SpecialParsingType {
     Spritemap,
     SpritemapRaw,
     SpritemapExtended,
+    InstructionList,
 }
 
 #[derive(Clone)]
@@ -82,17 +88,21 @@ impl GlobalParsingState {
 
 pub struct FileParsingState {
     modifier_stack: Vec<ParsingModifiers>,
+    prefixed_instruction_directive: Option<InstructionPrototype>,
 
     last_data_cmd: String,
-    last_pc: u64,
+    last_pc: u64, // TODO: This might be redundant with cur_addr
+    cur_addr: u64,
 }
 
 impl FileParsingState {
-    fn new() -> Self {
+    fn new(start_addr: u64) -> Self {
         FileParsingState {
             modifier_stack: vec![ParsingModifiers::default()],
+            prefixed_instruction_directive: None,
             last_data_cmd: String::new(),
             last_pc: 0,
+            cur_addr: start_addr,
         }
     }
 
@@ -116,6 +126,10 @@ impl FileParsingState {
     fn push_context(&mut self) {
         let current_context = self.get_modifiers().clone();
         self.modifier_stack.push(current_context);
+    }
+
+    fn addr_in_current_bank(&self, word_addr: u16) -> Addr {
+        (self.cur_addr & !0xFFFF) + word_addr as Addr
     }
 }
 
@@ -151,14 +165,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let file = File::open(filename).unwrap();
         let reader = BufReader::new(file);
-        let mut cur_addr = 0x008000 | ((bank_group.0 as u64) << 16);
-        let mut file_state = FileParsingState::new();
+        let mut file_state = FileParsingState::new(((bank_group.0 as u64) << 16) + 0x8000);
         
         /* Parse the full file into data */
-        for (addr, line) in reader.lines().flatten().map(|l| Line::parse(&l, &config, &mut file_state)) {
-            cur_addr = addr.unwrap_or(cur_addr);
-            if !is_bulk_data(cur_addr as u32) {
-                lines.entry(cur_addr).or_insert_with(Vec::new).push(line);
+        for line in reader.lines() {
+            let line = line.unwrap(); // TODO: Error handling
+            let (parsed_addr, parsed_line) = Line::parse(&line, &config, &mut file_state);
+            if let Some(addr) = parsed_addr {
+                file_state.cur_addr = addr;
+            }
+
+            if let Line::Code(Code { instruction_prototype: Some(instr_proto), .. }) = &parsed_line {
+                match global_state.labels.entry(file_state.cur_addr) {
+                    Entry::Vacant(e) => {
+                        e.insert(Label {
+                            address: file_state.cur_addr,
+                            name: format!("SUB_{:06X}", file_state.cur_addr),
+                            label_type: LabelType::Instruction(instr_proto.clone()),
+                            assigned: false,
+                            external: false,
+                        });
+                    }
+                    Entry::Occupied(e) => {
+                        eprintln!("Duplicate prototype for label {}", e.get().name);
+                    }
+                }
+            }
+
+            if !is_bulk_data(file_state.cur_addr as u32) {
+                lines.entry(file_state.cur_addr).or_insert_with(Vec::new).push(parsed_line);
             }
         }
     }
@@ -185,13 +220,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ArgType::BlockMove(a, b) => ArgType::BlockMove(a, b)
                         };
 
+                        if let Some(instr_proto) = &c.instruction_prototype {
+                            match global_state.labels.entry(new_addr) {
+                                Entry::Vacant(e) => {
+                                    e.insert(Label {
+                                        address: new_addr,
+                                        name: format!("SUB_{:06X}", new_addr),
+                                        label_type: LabelType::Instruction(instr_proto.clone()),
+                                        assigned: false,
+                                        external: false,
+                                    });
+                                }
+                                Entry::Occupied(e) => {
+                                    eprintln!("Duplicate prototype for label {}", e.get().name);
+                                }
+                            }
+                        }
+
                         Line::Code(Code {
                             address: new_addr,
-                            comment: c.comment.clone(),
-                            length: c.length,
-                            opcode: c.opcode,
                             db: *bank as u8,
-                            arg: new_arg
+                            arg: new_arg,
+                            ..c.clone()
                         })
                     },
                     Line::Data(d) => {
@@ -254,18 +304,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     output_file = File::create("./asm/labels.asm").unwrap();
-    for (a, l) in global_state.labels.iter().filter(|(_,l)| !l.assigned && l.label_type != LabelType::Blocked) {
+    for (a, l) in global_state.labels.iter().filter(|(_,l)| !l.assigned && !l.is_blocked()) {
         let _ = writeln!(output_file, "{} = ${:06X}", l.name, a);
     }
 
     output_file = File::create("./asm/all_labels.asm").unwrap();
-    for (a, l) in global_state.labels.iter().filter(|(_,l)| l.assigned && l.label_type != LabelType::Blocked) {
+    for (a, l) in global_state.labels.iter().filter(|(_,l)| l.assigned && !l.is_blocked()) {
         let _ = writeln!(output_file, "{} = ${:06X}", l.name, a);
     }
 
     output_file = File::create("./asm/externals.asm").unwrap();
     let _ = writeln!(output_file, "; Generated by sm_banklog_parser");
-    for (a, l) in global_state.labels.iter().filter(|(_,l)| l.assigned && l.external && l.label_type != LabelType::Blocked) {
+    for (a, l) in global_state.labels.iter().filter(|(_,l)| l.assigned && l.external && !l.is_blocked()) {
         let _ = writeln!(output_file, "{} = ${:06X}", l.name, a);
     }
 

@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::{config::Config, label::LabelType, opcode::{AddrMode, Opcode}};
+use crate::{config::Config, InstructionPrototype, opcode::{AddrMode, Opcode}};
 use crate::label::LabelMap;
 
 #[derive(Debug, Clone)]
@@ -18,6 +18,8 @@ pub struct Code {
     pub comment: Option<String>,
     pub length: u8,
     pub db: u8,
+
+    pub instruction_prototype: Option<InstructionPrototype>,
 }
 
 impl Code {
@@ -75,7 +77,7 @@ impl Code {
                     (Some(l), offset) => {
                         l.use_from(self.address);
 
-                        if (((self.opcode.addr_mode == AddrMode::Immediate || self.opcode.addr_mode == AddrMode::ImmediateByte) && config.get_override(self.address).is_some()) || (self.opcode.addr_mode != AddrMode::Immediate && self.opcode.addr_mode != AddrMode::ImmediateByte)) && l.label_type != LabelType::Blocked {
+                        if (((self.opcode.addr_mode == AddrMode::Immediate || self.opcode.addr_mode == AddrMode::ImmediateByte) && config.get_override(self.address).is_some()) || (self.opcode.addr_mode != AddrMode::Immediate && self.opcode.addr_mode != AddrMode::ImmediateByte)) && !l.is_blocked() {
                             match offset {
                                 0 => l.name.to_string(),
                                 -1 | -2 => format!("{}+{}", l.name, -offset),

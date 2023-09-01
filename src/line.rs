@@ -2,10 +2,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use lazy_static::lazy_static;
 use regex::Regex;
 
+use crate::{Addr, FileParsingState, SpecialParsingType};
 use crate::code::{ArgType, Code};
 use crate::config::Config;
 use crate::data::{Data, DataVal};
-use crate::{FileParsingState, SpecialParsingType};
+use crate::directives::{InstructionPrototype, parse_instruction_prototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
 
@@ -16,7 +17,7 @@ lazy_static! {
     static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
     static ref DATA_START_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})(/\$[0-9A-F]{4}|)\s*(|db|dw|dl|dx|dW)\s*((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
     static ref DATA_CONT_REGEX: Regex = Regex::new(r"^\s+((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
-    static ref SUB_REGEX: Regex = Regex::new(r"^;;;(.*)\n[\W\w\s]*?^\$([A-Z0-9]{2}:[A-Z0-9]{4})").unwrap();
+    static ref SUB_REGEX: Regex = Regex::new(r"^;;; \$(?P<addr>[[:xdigit:]]+):\s*(?P<desc>.*?)\s*(?:;;;)?\s*$").unwrap();
     static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
     static ref BRACKETS_REGEX: Regex = Regex::new(r"^\s*([{}])\s*(;.*)?$").unwrap();
 }
@@ -39,28 +40,55 @@ impl Line {
     }
 }
 
+fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<(), String> {
+    let (cmd, args) = match line.split_once(' ') {
+        Some((cmd, args)) => (cmd, Some(args)),
+        None => (line, None),
+    };
+
+    match cmd {
+        "spritemap" => {
+            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::Spritemap).unwrap();
+        }
+        "spritemap_raw" => {
+            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapRaw).unwrap();
+        }
+        "spritemap_extended" => {
+            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapExtended).unwrap();
+        }
+        "instruction_list" => {
+            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::InstructionList).unwrap();
+        }
+        "instruction" => {
+            if file_state.prefixed_instruction_directive.is_some() {
+                return Err("Duplicated instruction directive.".into());
+            }
+            let args = args.ok_or("Missing instruction parameter list")?;
+            let params = parse_instruction_prototype(args)?;
+
+            file_state.prefixed_instruction_directive = Some(InstructionPrototype { params });
+        }
+        _ => return Err(format!("Unknown parsing directive: {}", line)),
+    }
+
+    Ok(())
+}
+
 impl Line {
-    pub fn parse(line: &str, _config: &Config, file_state: &mut FileParsingState) -> (Option<u64>, Line) {
+    pub fn parse(line: &str, _config: &Config, file_state: &mut FileParsingState) -> (Option<Addr>, Line) {
         let special_type = file_state.get_modifiers().data_type;
 
-        if let Some(cap) = COMMENT_REGEX.captures(line) {
+        if let Some(cap) = SUB_REGEX.captures(line) {
+            let addr = u16::from_str_radix(&cap["addr"], 16).unwrap(); // TODO: Error handling
+            let _desc = &cap["desc"];
+            let full_addr = file_state.addr_in_current_bank(addr);
+            (Some(full_addr), Line::Comment(line.into()))
+        } else if let Some(cap) = COMMENT_REGEX.captures(line) {
             if let Some(rest) = line.strip_prefix(";@!") {
-                match rest.trim_end() {
-                    "spritemap" => {
-                        file_state.get_modifiers_mut().set_data_type(SpecialParsingType::Spritemap).unwrap();
-                    }
-                    "spritemap_raw" => {
-                        file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapRaw).unwrap();
-                    }
-                    "spritemap_extended" => {
-                        file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapExtended).unwrap();
-                    }
-                    other => {
-                        panic!("Unknown parsing directive: {}", other);
-                    }
+                if let Err(s) = process_directive(rest, file_state) {
+                    eprintln!("{}", s);
                 }
             }
-
             (None, Line::Comment(cap[1].into()))
         } else if let Some(cap) = BRACKETS_REGEX.captures(line) {
             match &cap[1] {
@@ -89,7 +117,8 @@ impl Line {
                 arg,
                 length: 3,
                 db: (address >> 16) as u8,
-                comment: comment.map(|c| c.as_str()[1..].to_owned())
+                comment: comment.map(|c| c.as_str()[1..].to_owned()),
+                instruction_prototype: file_state.prefixed_instruction_directive.take(),
             };
 
             (Some(address), Line::Code(code))
@@ -138,7 +167,8 @@ impl Line {
                 arg,
                 length,
                 db,
-                comment: comment.clone()
+                comment: comment.clone(),
+                instruction_prototype: file_state.prefixed_instruction_directive.take(),
             };
             
             if code.opcode.name == "BRK" && code.length == 0 {
@@ -247,8 +277,6 @@ impl Line {
             } else {
                 (None, Line::Comment(raw_data.trim().to_string()))
             }
-        } else if let Some(_cap) = SUB_REGEX.captures(line) {
-            (None, Line::Comment(format!(";{}", line)))
         } else {
             (None, Line::Comment(line.to_string()))
         }
