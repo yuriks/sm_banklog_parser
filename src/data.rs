@@ -175,7 +175,7 @@ impl Data {
             let instruction = instruction.get_dw().ok_or("Instruction must be a dw")?;
 
             let target = (self.address & !0xFFFF) + Addr::from(instruction);
-            let label = labels.get(&target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
+            let label = labels.get_label(target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
             let prototype = match &label.label_type {
                 LabelType::Subroutine => &default_prototype,
                 LabelType::Instruction(p) => p,
@@ -220,14 +220,15 @@ impl Data {
                         DataVal::DL(_) => ("dl", 3)
                     };
 
-                    if !first_cmd && labels.contains_key(&cur_pc) {
-                        /* There's a label for this address, add it into the data */
-                        output.push_str(&format!(" : {}: ", labels[&cur_pc].name));
-                        let lbl = labels.get_mut(&cur_pc).unwrap();
-                        lbl.assigned = true;
-                        first_cmd = true;
-                        first_val = true;
-                        last_data_cmd = "";
+                    if !first_cmd {
+                        if let Some(lbl) = labels.0.get_mut(&cur_pc) {
+                            /* There's a label for this address, add it into the data */
+                            output.push_str(&format!(" : {}: ", lbl.name));
+                            lbl.assigned.set(true);
+                            first_cmd = true;
+                            first_val = true;
+                            last_data_cmd = "";
+                        }
                     }
 
                     if data_cmd != last_data_cmd {

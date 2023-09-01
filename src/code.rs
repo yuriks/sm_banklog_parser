@@ -23,7 +23,7 @@ pub struct Code {
 }
 
 impl Code {
-    fn arg_label(&self, config: &Config, labels: &mut LabelMap) -> Option<String> {
+    fn arg_label(&self, config: &Config, labels: &LabelMap) -> Option<String> {
         /* TODO: Get label if exists */
         /* Make sure to handle PC-relative addresses correctly */
         match self.arg {
@@ -49,28 +49,14 @@ impl Code {
                     }
                 };
 
-                let label = {
-                    if let Some(label) = labels.get_mut(&label_addr) {
-                        Some((label, 0))
-                    } else if self.opcode.addr_mode != AddrMode::Relative &&
-                        self.opcode.addr_mode != AddrMode::RelativeLong &&
-                        self.opcode.name != "JSR" &&
-                        self.opcode.name != "JSL"
-                    {
-                        if labels.contains_key(&(label_addr - 1)) {
-                            Some((labels.get_mut(&(label_addr - 1)).unwrap(), -1))
-                        } else if labels.contains_key(&(label_addr + 1)) {
-                            Some((labels.get_mut(&(label_addr + 1)).unwrap(), 1))
-                        } else if labels.contains_key(&(label_addr - 2)) {
-                            Some((labels.get_mut(&(label_addr - 2)).unwrap(), -2))
-                        } else if labels.contains_key(&(label_addr + 2)) {
-                            Some((labels.get_mut(&(label_addr + 2)).unwrap(), 2))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
+                let label = if self.opcode.addr_mode != AddrMode::Relative &&
+                    self.opcode.addr_mode != AddrMode::RelativeLong &&
+                    self.opcode.name != "JSR" &&
+                    self.opcode.name != "JSL"
+                {
+                    labels.get_label_fuzzy(label_addr)
+                } else {
+                    labels.get_label(label_addr).map(|l| (l, 0))
                 };
 
                 let result = match label {
@@ -116,7 +102,7 @@ impl Code {
 impl Code {
     //noinspection IncorrectFormatting
     #[allow(clippy::match_same_arms)]
-    pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
+    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
         let arg_label = self.arg_label(config, labels).unwrap_or_default();
         let opcode = match self.opcode.addr_mode {
             AddrMode::Absolute =>                       format!("{}.w {}", self.opcode.name, arg_label),
