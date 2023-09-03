@@ -2,10 +2,9 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
-use if_chain::if_chain;
 use serde::Deserialize;
 
-use crate::{code::ArgType, config::Config, data::DataVal, line::Line, opcode::{AddrMode, Opcode}};
+use crate::{code::ArgType, config::Config, line::Line, opcode::{AddrMode, Opcode}};
 use crate::config::OverrideType;
 use crate::directives::InstructionPrototype;
 
@@ -225,65 +224,57 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                     /* Scan through data and insert labels for data pointers (from overrides) */
                     let mut cur_pc = data.address;
                     for d in &data.data {
-                        let data_len = match d {
-                            DataVal::DB(_) => 1,
-                            DataVal::DW(_) => 2,
-                            DataVal::DL(_) => 3
-                        };
+                        if let Some(ov) = config.get_override(cur_pc) {
+                            match ov.type_ {
+                                /* Handle regular pointer overrides */
+                                Some(t @ (OverrideType::Pointer | OverrideType::PointerTable | OverrideType::DataTable | OverrideType::Data | OverrideType::Subroutine)) => {
+                                    let db = ov.db.unwrap_or(cur_pc >> 16);
+                                    let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
+                                    let (name, label_type) = match t {
+                                        OverrideType::Pointer | OverrideType::Subroutine => (format!("SUB_{label_addr:06X}"), LabelType::Subroutine),
+                                        OverrideType::PointerTable => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable { length: 0 }),
+                                        OverrideType::DataTable => (format!("TBL_{label_addr:06X}"), LabelType::DataTable { length: 0 }),
+                                        _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
+                                    };
 
-                        /* Handle regular pointer overrides */
-                        if_chain! {
-                            if let Some(ov) = config.get_override(cur_pc);
-                            if let Some(t @ (OverrideType::Pointer | OverrideType::PointerTable | OverrideType::DataTable | OverrideType::Data | OverrideType::Subroutine)) = &ov.type_;
-                            then {
-                                let db = ov.db.unwrap_or(cur_pc >> 16);
-                                let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
-                                let (name, label_type) = match t {
-                                    OverrideType::Pointer | OverrideType::Subroutine => (format!("SUB_{label_addr:06X}"), LabelType::Subroutine),
-                                    OverrideType::PointerTable => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable { length: 0 }),
-                                    OverrideType::DataTable => (format!("TBL_{label_addr:06X}"), LabelType::DataTable { length: 0 }),
-                                    _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
-                                };
+                                    labels.0.entry(label_addr).or_insert(
+                                        Label::new(label_addr, name, label_type));
+                                },
 
-                                labels.0.entry(label_addr).or_insert(
-                                    Label::new(label_addr, name, label_type));
-                            }
-                        }
-
-                        /* Handle struct overrides */
-                        if_chain! {
-                            if let Some(ov) = config.get_override(cur_pc);
-                            if let Some(OverrideType::Struct) = &ov.type_;
-                            then {
-                                if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new())) {
-                                    let last_field = &st.fields[st.fields.len() - 1];
-                                    let st_len = last_field.offset + last_field.length;
-                                    let cur_offset = cur_pc - data.address;
-                                    let cur_st_offset = cur_offset % st_len;
-                                    let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
-                                    if field.type_ == OverrideType::Pointer {
-                                        let db = field.db.unwrap_or(cur_pc >> 16);                                    
-                                        let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
-                                        if (label_addr & 0xFFFF) >= 0x8000 {
-                                            labels.0.entry(label_addr).or_insert(Label::new(
-                                                label_addr,
-                                                format!("{}_{:04X}", field.name, label_addr & 0xFFFF_u64),
-                                                LabelType::Subroutine));
+                                /* Handle struct overrides */
+                                Some(OverrideType::Struct) => {
+                                    if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new())) {
+                                        let last_field = &st.fields[st.fields.len() - 1];
+                                        let st_len = last_field.offset + last_field.length;
+                                        let cur_offset = cur_pc - data.address;
+                                        let cur_st_offset = cur_offset % st_len;
+                                        let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
+                                        if field.type_ == OverrideType::Pointer {
+                                            let db = field.db.unwrap_or(cur_pc >> 16);
+                                            let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
+                                            if (label_addr & 0xFFFF) >= 0x8000 {
+                                                labels.0.entry(label_addr).or_insert(Label::new(
+                                                    label_addr,
+                                                    format!("{}_{:04X}", field.name, label_addr & 0xFFFF_u64),
+                                                    LabelType::Subroutine));
+                                            }
+                                        }
+                                        if cur_st_offset == 0 {
+                                            labels.0.entry(cur_pc)
+                                                .and_modify(|l| l.name = format!("{}_{:04X}", st.name, cur_pc & 0xFFFF_u64))
+                                                .or_insert(Label::new(
+                                                    cur_pc,
+                                                    format!("{}_{:04X}", st.name, cur_pc & 0xFFFF_u64),
+                                                    LabelType::DataTable { length: 0 }));
                                         }
                                     }
-                                    if cur_st_offset == 0 {
-                                        labels.0.entry(cur_pc)
-                                            .and_modify(|l| l.name = format!("{}_{:04X}", st.name, cur_pc & 0xFFFF_u64))
-                                            .or_insert(Label::new(
-                                                cur_pc,
-                                                format!("{}_{:04X}", st.name, cur_pc & 0xFFFF_u64),
-                                                LabelType::DataTable { length: 0 }));
-                                    }
-                                }
+                                },
+
+                                None => {},
                             }
                         }
 
-                        cur_pc += data_len;
+                        cur_pc += d.length();
                     }
                     None
                 }
