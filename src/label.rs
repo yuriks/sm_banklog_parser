@@ -3,8 +3,10 @@ use std::collections::BTreeMap;
 use std::ops::Deref;
 
 use if_chain::if_chain;
+use serde::Deserialize;
 
 use crate::{code::ArgType, config::Config, data::DataVal, line::Line, opcode::{AddrMode, Opcode}};
+use crate::config::OverrideType;
 use crate::directives::InstructionPrototype;
 
 pub struct LabelMap(pub(crate) BTreeMap<u64, Label>);
@@ -37,15 +39,18 @@ impl LabelMap {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(tag = "type")]
 pub enum LabelType {
+    #[default]
     Undefined,
     Subroutine,
+    #[serde(skip)]
     Instruction(InstructionPrototype),
     Branch,
     Data,
-    PointerTable(u64),
-    DataTable(u64),
+    PointerTable { length: u64 },
+    DataTable { length: u64 },
     Blocked,
 }
 
@@ -87,21 +92,10 @@ impl Label {
 pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels: &mut LabelMap) {
     /* Pre-initialize all labels from the config file */
     for label in &config.labels {
-        let length = label.length.unwrap_or(0);
-        let label_type = match label.label_type.as_ref().unwrap_or(&"Data".to_string()).as_str() {
-            "Subroutine" => LabelType::Subroutine,
-            "Branch" => LabelType::Branch,
-            "DataTable" => LabelType::DataTable(length),
-            "PointerTable" => LabelType::PointerTable(length),
-            "Data" => LabelType::Data,
-            "Blocked" => LabelType::Blocked,
-            _ => LabelType::Undefined
-        };
-
         labels.0.entry(label.addr).or_insert(Label::new(
             label.addr,
             label.name.clone(),
-            label_type));
+            label.type_.clone().unwrap_or_default()));
     }
 
     for (addr, line) in lines {
@@ -134,7 +128,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                 Some(Label::new(
                                     label_addr,
                                     format!("{prefix}_{label_addr:06X}"),
-                                    LabelType::PointerTable(0)))
+                                    LabelType::PointerTable { length: 0 }))
                             } else {
                                 None
                             }
@@ -163,7 +157,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                 Some(Label::new(
                                     label_addr,
                                     format!("{prefix}_{label_addr:06X}"),
-                                    LabelType::DataTable(0)))
+                                    LabelType::DataTable { length: 0 } ))
                             } else {
                                 None
                             }
@@ -171,14 +165,13 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         Opcode { addr_mode: AddrMode::Immediate, .. } => {
                             /* For now, only do this with overrides */
                             if let Some(ov) = config.get_override(*addr) {
-                                let ov_type = ov.type_.clone().unwrap_or(String::new());
-                                if ov_type == "DataTable" || ov_type == "PointerTable" || ov_type == "Pointer" || ov_type == "Data" {
+                                if let Some(ov_type @ (OverrideType::DataTable | OverrideType::PointerTable | OverrideType::Pointer | OverrideType::Data)) = ov.type_ {
                                     let db = ov.db.unwrap_or(addr >> 16);
                                     let label_addr = (arg_addr & 0xFFFF_u64) | (db << 16);
-                                    let (name, label_type) = match ov_type.as_str() {
-                                        "DataTable" => (format!("TBL_{label_addr:06X}"), LabelType::DataTable(0)),
-                                        "PointerTable" => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable(0)),
-                                        "Pointer" => (format!("SUB_{label_addr:06X}"), LabelType::PointerTable(0)),
+                                    let (name, label_type) = match ov_type {
+                                        OverrideType::DataTable => (format!("TBL_{label_addr:06X}"), LabelType::DataTable { length: 0 }),
+                                        OverrideType::PointerTable => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable { length: 0 }),
+                                        OverrideType::Pointer => (format!("SUB_{label_addr:06X}"), LabelType::PointerTable { length: 0 }),
                                         _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
                                     };
                                     Some(Label::new(label_addr, name, label_type))
@@ -241,15 +234,14 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         /* Handle regular pointer overrides */
                         if_chain! {
                             if let Some(ov) = config.get_override(cur_pc);
-                            if let Some(t) = &ov.type_;
-                            if t == "Pointer" || t == "PointerTable" || t == "DataTable" || t == "Data" || t == "Subroutine";
-                            then {                                
+                            if let Some(t @ (OverrideType::Pointer | OverrideType::PointerTable | OverrideType::DataTable | OverrideType::Data | OverrideType::Subroutine)) = &ov.type_;
+                            then {
                                 let db = ov.db.unwrap_or(cur_pc >> 16);
                                 let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
-                                let (name, label_type) = match t.as_str() {
-                                    "Pointer" | "Subroutine" => (format!("SUB_{label_addr:06X}"), LabelType::Subroutine),
-                                    "PointerTable" => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable(0)),
-                                    "DataTable" => (format!("TBL_{label_addr:06X}"), LabelType::DataTable(0)),
+                                let (name, label_type) = match t {
+                                    OverrideType::Pointer | OverrideType::Subroutine => (format!("SUB_{label_addr:06X}"), LabelType::Subroutine),
+                                    OverrideType::PointerTable => (format!("PTR_{label_addr:06X}"), LabelType::PointerTable { length: 0 }),
+                                    OverrideType::DataTable => (format!("TBL_{label_addr:06X}"), LabelType::DataTable { length: 0 }),
                                     _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
                                 };
 
@@ -261,8 +253,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                         /* Handle struct overrides */
                         if_chain! {
                             if let Some(ov) = config.get_override(cur_pc);
-                            if let Some(t) = &ov.type_;
-                            if t == "Struct";
+                            if let Some(OverrideType::Struct) = &ov.type_;
                             then {
                                 if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new())) {
                                     let last_field = &st.fields[st.fields.len() - 1];
@@ -270,7 +261,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                     let cur_offset = cur_pc - data.address;
                                     let cur_st_offset = cur_offset % st_len;
                                     let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
-                                    if field.type_ == "Pointer" {
+                                    if field.type_ == OverrideType::Pointer {
                                         let db = field.db.unwrap_or(cur_pc >> 16);                                    
                                         let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
                                         if (label_addr & 0xFFFF) >= 0x8000 {
@@ -286,7 +277,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                             .or_insert(Label::new(
                                                 cur_pc,
                                                 format!("{}_{:04X}", st.name, cur_pc & 0xFFFF_u64),
-                                                LabelType::DataTable(0)));
+                                                LabelType::DataTable { length: 0 }));
                                     }
                                 }
                             }
@@ -301,7 +292,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
 
             if let Some(label) = label {
                 match label.label_type {
-                    LabelType::DataTable(_) | LabelType::PointerTable(_) => {
+                    LabelType::DataTable { .. } | LabelType::PointerTable { .. } => {
                         if labels.get_label_fuzzy(label.address).is_none() {
                             labels.0.insert(label.address, label);
                         }

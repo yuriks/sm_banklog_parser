@@ -1,13 +1,25 @@
 use glob::glob;
 use serde::Deserialize;
 
+use crate::label::LabelType;
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Deserialize)]
+pub enum OverrideType {
+    Pointer,
+    Data,
+    Struct,
+    PointerTable,
+    DataTable,
+    Subroutine,
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct StructField {
     pub name: String,
     pub offset: u64,
     pub length: u64,
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: OverrideType,
     pub db: Option<u64>
 }
 
@@ -21,16 +33,16 @@ pub struct Struct {
 pub struct Label {
     pub addr: u64,
     pub name: String,
-    #[serde(rename = "type")]
-    pub label_type: Option<String>,
-    pub length: Option<u64>
+    // Needs to be an Option because default doesn't work: https://github.com/serde-rs/serde/issues/1626
+    #[serde(rename = "type", flatten, default)]
+    pub type_: Option<LabelType>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum OverrideAddr {
     Address(u64),
-    Range(Vec<u64>)
+    Range(u64, u64)
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -38,7 +50,7 @@ pub struct Override {
     pub addr: OverrideAddr,
     pub db: Option<u64>,
     #[serde(rename = "type")]
-    pub type_: Option<String>,
+    pub type_: Option<OverrideType>,
     #[serde(rename = "struct")]
     pub struct_: Option<String>,
     pub opcode: Option<Vec<u64>>,
@@ -55,7 +67,7 @@ impl Config {
     pub fn load(path: &str) -> Config {
         let label_filenames = glob(&format!("{path}/labels/*.yaml")).unwrap();
         let labels: Vec<Label> = label_filenames.flatten()
-            .flat_map(|f| serde_yaml::from_str::<Vec<Label>>(&std::fs::read_to_string(f).unwrap()).unwrap())
+            .flat_map(|f| serde_yaml::from_str::<Vec<Label>>(&std::fs::read_to_string(&f).unwrap()).unwrap_or_else(|e| panic!("Failed parsing {f:?}: {e}")))
             .collect();
 
         let override_filenames = glob(&format!("{path}/overrides/*.yaml")).unwrap();
@@ -69,19 +81,23 @@ impl Config {
             .collect();
 
         /* Generate overrides from pointer labels with a length defined */
-        let mut generated_overrides: Vec<Override> = labels.iter()
-            .filter(|l| {
-                let label_type = l.label_type.clone().unwrap_or_default();
-                (label_type == "PointerTable" || label_type == "DataTable") && l.length.unwrap_or(0) > 1
-            })
-            .map(|l| Override {
-                addr: OverrideAddr::Range(vec![l.addr, l.addr + (l.length.unwrap() * 2)]),
-                db: Some(l.addr >> 16),
-                struct_: None,
-                type_: Some(if l.label_type.clone().unwrap() == "PointerTable" { "Pointer".to_string() } else { "Data".to_string() }),
-                opcode: None
-            }).collect();
-        overrides.append(&mut generated_overrides);
+        let generated_overrides = labels.iter()
+            .filter_map(|l| {
+                let (override_type, length) = match l.type_ {
+                    Some(LabelType::PointerTable { length }) if length > 1 => (OverrideType::Pointer, length),
+                    Some(LabelType::DataTable { length }) if length > 1 => (OverrideType::Data, length),
+                    _ => return None,
+                };
+
+                Some(Override {
+                    addr: OverrideAddr::Range(l.addr, l.addr + (length * 2)),
+                    db: Some(l.addr >> 16),
+                    struct_: None,
+                    type_: Some(override_type),
+                    opcode: None
+                })
+            });
+        overrides.extend(generated_overrides);
 
         Config { labels, overrides, structs }
     }
@@ -89,7 +105,7 @@ impl Config {
     pub fn get_override(&self, addr: u64) -> Option<&Override> {
         self.overrides.iter().find(|o| match &o.addr {
             OverrideAddr::Address(a) if *a == addr => true,
-            OverrideAddr::Range(r) if addr >= r[0] && addr <= r[1] => true,
+            OverrideAddr::Range(a, b) if addr >= *a && addr <= *b => true,
             _ => false
         })
     }

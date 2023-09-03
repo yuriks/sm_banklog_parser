@@ -7,7 +7,7 @@ use nom::error::{convert_error, VerboseError};
 use nom::multi::separated_list0;
 use nom::sequence::delimited;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum InstructionParameter {
     Byte,
     Word,
@@ -16,7 +16,7 @@ pub enum InstructionParameter {
     VramAddr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstructionPrototype {
     pub params: Vec<InstructionParameter>,
 }
