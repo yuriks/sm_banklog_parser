@@ -1,5 +1,6 @@
 use glob::glob;
 use serde::Deserialize;
+use crate::Bank;
 
 use crate::label::LabelType;
 
@@ -48,7 +49,7 @@ pub enum OverrideAddr {
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Override {
     pub addr: OverrideAddr,
-    pub db: Option<u64>,
+    pub db: Option<Bank>,
     #[serde(rename = "type")]
     pub type_: Option<OverrideType>,
     #[serde(rename = "struct")]
@@ -91,7 +92,7 @@ impl Config {
 
                 Some(Override {
                     addr: OverrideAddr::Range(l.addr, l.addr + (length * 2)),
-                    db: Some(l.addr >> 16),
+                    db: Some((l.addr >> 16) as Bank),
                     struct_: None,
                     type_: Some(override_type),
                     opcode: None

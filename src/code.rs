@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::{config::Config, InstructionPrototype, opcode::{AddrMode, Opcode}};
+use crate::{Bank, config::Config, InstructionPrototype, opcode::{AddrMode, Opcode}};
 use crate::label::LabelMap;
 
 #[derive(Debug, Clone)]
@@ -17,7 +17,8 @@ pub struct Code {
     pub arg: ArgType,
     pub comment: Option<String>,
     pub length: u8,
-    pub db: u8,
+    // TODO: Rename to "label_bank"
+    pub db: Bank,
 
     pub instruction_prototype: Option<InstructionPrototype>,
 }
@@ -28,6 +29,13 @@ impl Code {
         /* Make sure to handle PC-relative addresses correctly */
         match self.arg {
             ArgType::Address(addr) => {
+                let mut override_db = None;
+
+                let override_ = config.get_override(self.address);
+                if let Some(override_) = override_ {
+                    override_db = override_.db;
+                }
+
                 let label_addr = match self.opcode.addr_mode {
                     AddrMode::PcRelative => {
                         ((self.address as i64) + 2 + i64::from((addr & 0xFF) as i8)) as u64
@@ -37,13 +45,19 @@ impl Code {
                     },
                     _ => {
                         match self.length {
-                            1 => 0x7E_0000 | (addr & 0xFF),
-                            2 => match addr {
-                                0..=0x1FFF => 0x7E_0000 | (addr & 0xFFFF),
-                                0x2000..=0x7FFF => addr & 0xFFFF,
-                                _ => (u64::from(self.db) << 16) | (addr & 0xFFFF)
+                            1 => {
+                                if override_db.is_some() {
+                                    println!("DB override used with Direct adressing at {:06X}, ignoring.", self.address);
+                                }
+                                0x7E_0000 | (addr & 0xFF)
                             },
-                            3 => addr,
+                            2 => (u64::from(override_db.unwrap_or(self.db)) << 16) | (addr & 0xFFFF),
+                            3 => {
+                                if override_db.is_some() {
+                                    println!("DB override used with Long adressing at {:06X}, ignoring.", self.address);
+                                }
+                                addr
+                            },
                             _ => panic!("Invalid argument length")
                         }
                     }
@@ -63,7 +77,9 @@ impl Code {
                     Some((l, offset)) => {
                         l.use_from(self.address);
 
-                        if (((self.opcode.addr_mode == AddrMode::Immediate || self.opcode.addr_mode == AddrMode::ImmediateByte) && config.get_override(self.address).is_some()) || (self.opcode.addr_mode != AddrMode::Immediate && self.opcode.addr_mode != AddrMode::ImmediateByte)) && !l.is_blocked() {
+                        let is_immediate = matches!(self.opcode.addr_mode, AddrMode::Immediate | AddrMode::ImmediateByte);
+                        #[allow(clippy::nonminimal_bool)]
+                        if !l.is_blocked() && !(is_immediate && override_.is_none()) {
                             match offset {
                                 0 => l.name.to_string(),
                                 -1 | -2 => format!("{}+{}", l.name, -offset),

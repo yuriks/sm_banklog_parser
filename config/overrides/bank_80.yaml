@@ -14,7 +14,7 @@
 
 # Overrides immediate opcodes in bank 80 to be pointers
 - addr: 0x809B56
-  type: Data
+  type: Pointer
   db: 0x80
 
 - addr: 0x809B5E

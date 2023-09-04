@@ -236,7 +236,7 @@ fn main() {
 
                         Line::Code(Code {
                             address: new_addr,
-                            db: *bank as u8,
+                            db: if c.db == 0xA0 { *bank as u8 } else { c.db },
                             arg: new_arg,
                             ..c.clone()
                         })

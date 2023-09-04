@@ -310,7 +310,7 @@ lazy_static! {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddressingBank {
-    /// Instruction does not calculate an effective address
+    /// Instruction does not calculate an effective address. Also used for stack-relative labels.
     None,
     /// Uses the Data Bank Register as bank source
     Data,
@@ -356,7 +356,7 @@ pub enum AddrMode {
 
 impl AddrMode {
     #[allow(clippy::enum_glob_use, clippy::match_same_arms)]
-    pub fn bank_source(self) -> AddressingBank {
+    pub fn effective_bank_source(self) -> AddressingBank {
         use AddressingBank::*;
         match self {
             AddrMode::Implied => None,
@@ -389,6 +389,30 @@ impl AddrMode {
             AddrMode::AbsoluteIndexedIndirect => Program,
 
             AddrMode::BlockMove => None,
+        }
+    }
+
+    /// Most instructions have the label match the effective address. This is not true for indirect
+    /// instructions, where the label corresponds to the indirect address.
+    #[allow(clippy::enum_glob_use, clippy::match_same_arms)]
+    pub fn label_bank_source(self) -> AddressingBank {
+        use AddressingBank::*;
+        match self {
+            AddrMode::DirectIndirect => Direct,
+            AddrMode::DirectIndexedIndirect => Direct,
+            AddrMode::DirectIndirectIndexed => Direct,
+            AddrMode::DirectIndirectLong => Direct,
+            AddrMode::DirectIndirectLongIndexed => Direct,
+
+            AddrMode::AbsoluteIndirect => Direct,
+            AddrMode::AbsoluteIndirectLong => Direct,
+            // AddrMode::AbsoluteIndexedIndirect does indeed indirect via the Program Bank
+
+            // Stack-relative addressing gets no auto labels
+            AddrMode::StackRelative => None,
+            AddrMode::StackRelativeIndirectIndexed => None,
+
+            _ => self.effective_bank_source(),
         }
     }
 }

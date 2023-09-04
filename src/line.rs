@@ -153,57 +153,48 @@ impl Line {
                 _ => None,
             };
 
-            let mut db = match logged_addr {
-                Some((logged_bank, _)) if (arg_addr & 0xFFFF) > 0x8000 => logged_bank,
-                _ => ((address >> 16) & 0xFF) as u8,
-            };
+            // The bank logs have various incorrect logged runtime addresses where 7E is reported as
+            // the bank for IO port operations. Discard these to fall back to guessing and prevent
+            // matching to incorrect labels.
+            let logged_bank = logged_addr
+                .filter(|(bank, addr)| !matches!((bank, addr), (0x7E, 0x2000..=0x5FFF)))
+                .map(|(bank, _)| bank);
 
             let code_bank = (address >> 16) as u8;
-            // (expected bank, estimated address)
-            let expected = match opcode.addr_mode.bank_source() {
-                AddressingBank::None | AddressingBank::Data | AddressingBank::IndirectLong => None,
-                AddressingBank::Program => Some((code_bank, 0x8000)),
+            let label_bank = match opcode.addr_mode.label_bank_source() {
+                AddressingBank::None => None,
+                // TODO: These need to be replaced by better instruction emulation to handle PC-relative, etc.
+                AddressingBank::Data => Some((logged_bank.unwrap_or(code_bank), arg_addr & 0xFFFF)),
+                AddressingBank::Program => Some((code_bank, arg_addr & 0xFFFF)),
                 AddressingBank::Direct => Some((0, arg_addr & 0xFFFF)),
                 AddressingBank::Long => Some(((arg_addr >> 16) as u8, arg_addr & 0xFFFF)),
+                AddressingBank::IndirectLong => unreachable!("IndirectLong should never be a label bank source"),
             };
             let canonical_bank = if opcode.addr_mode == AddrMode::AbsoluteLongIndexed
                 && (0x80u64..=0xCF).contains(&(arg_addr >> 16))
                 && (arg_addr & 0xFFFF) < 0x40 {
                 // This is sometimes used for accessing struct fields relative to a pointer to
                 // another bank, which would be incorrectly canonicalized as a WRAM mirror.
-                expected.map(|(bank, _addr)| bank)
+                label_bank.map(|(bank, _addr)| bank)
             } else {
-                expected.map(|(bank, addr)| canonicalize_bank((Addr::from(bank) << 16) + addr))
+                label_bank.map(|(bank, addr)| canonicalize_bank((Addr::from(bank) << 16) + addr))
             };
-
-            // Some of the runtime effective addresses in the bank logs are impossible given the
-            // instructions they're applied to. Until those are fixed, correcting these here fixes
-            // some incorrect generated labels.
-            if let Some((expected_bank, (logged_bank, _))) = canonical_bank.zip(logged_addr) {
-                if logged_bank != expected_bank {
-                    // TODO: This warning should be re-enabled once the bank logs are corrected
-                    //eprintln!("Nonsensical {} with bank ${logged_db:02X} (expected ${expected_bank:02X}) at ${address:06X}:", opcode.name);
-                    //eprintln!("    {line}");
-                    db = expected_bank;
-                }
-            }
 
             let comment = comment.map(|c| c.as_str()[1..].to_owned());
 
-            let code = Code {
-                address,
-                opcode,
-                arg,
-                length,
-                db,
-                comment: comment.clone(),
-                instruction_prototype: file_state.prefixed_instruction_directive.take(),
-            };
-
-            if code.opcode.name == "BRK" && code.length == 0 {
+            if opcode.name == "BRK" && length == 0 {
                 (Some(address), Line::Data(Data { address, data: vec![DataVal::DB(0)], comment, special_type }))
             } else {
-                (Some(address), Line::Code(code))
+                (Some(address), Line::Code(Code {
+                    address,
+                    opcode,
+                    arg,
+                    length,
+                    // TODO: Make this an Option?
+                    db: canonical_bank.unwrap_or(0xFF),
+                    comment,
+                    instruction_prototype: file_state.prefixed_instruction_directive.take(),
+                }))
             }
         } else if let Some(cap) = DATA_START_REGEX.captures(line) {
             let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[3], &cap[4], cap.get(9));

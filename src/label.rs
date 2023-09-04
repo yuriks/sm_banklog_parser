@@ -175,7 +175,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             /* For now, only do this with overrides */
                             if let Some(ov) = config.get_override(*addr) {
                                 if let Some(ov_type @ (OverrideType::DataTable | OverrideType::PointerTable | OverrideType::Pointer | OverrideType::Data)) = ov.type_ {
-                                    let db = ov.db.unwrap_or(addr >> 16);
+                                    let db = ov.db.map_or(addr >> 16, Addr::from);
                                     let label_addr = (arg_addr & 0xFFFF_u64) | (db << 16);
                                     let (name, label_type) = match ov_type {
                                         OverrideType::DataTable => (format!("TBL_{label_addr:06X}"), LabelType::DataTable { length: 0 }),
@@ -238,7 +238,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             match ov.type_ {
                                 /* Handle regular pointer overrides */
                                 Some(t @ (OverrideType::Pointer | OverrideType::PointerTable | OverrideType::DataTable | OverrideType::Data | OverrideType::Subroutine)) => {
-                                    let db = ov.db.unwrap_or(cur_pc >> 16);
+                                    let db = ov.db.map_or(cur_pc >> 16, Addr::from);
                                     let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
                                     let (name, label_type) = match t {
                                         OverrideType::Pointer | OverrideType::Subroutine => (format!("SUB_{label_addr:06X}"), LabelType::Subroutine),

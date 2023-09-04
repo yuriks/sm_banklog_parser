@@ -295,7 +295,7 @@ impl Data {
         if let Some(ov) = config.get_override(cur_pc) {
             match ov.type_ {
                 Some(OverrideType::Pointer | OverrideType::Data) => {
-                    let db = ov.db.unwrap_or(cur_pc >> 16);
+                    let db = ov.db.map_or(cur_pc >> 16, u64::from);
                     let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
                     if let Some(label) = labels.get(&label_addr) {
                         output.push_str(&label.name);
