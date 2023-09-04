@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use serde::Deserialize;
 
-use crate::{code::ArgType, config::Config, line::Line, opcode::{AddrMode, Opcode}};
+use crate::{Addr, Bank, code::ArgType, config::Config, line::Line, opcode::{AddrMode, Opcode}};
 use crate::config::OverrideType;
 use crate::directives::InstructionPrototype;
 
@@ -88,6 +88,16 @@ impl Label {
     }
 }
 
+pub fn canonicalize_bank(addr: Addr) -> Bank {
+    match ((addr >> 16) as Bank, addr & 0xFFFF) {
+        // WRAM mirrors
+        ((0x00..=0x3F) | (0x80..=0xBF), 0x0000..=0x1FFF) => 0x7E,
+        // IO mirrors
+        ((0x00..=0x3F) | (0x80..=0xBF), 0x2000..=0x5FFF) => 0x00,
+        (bank, _) => bank,
+    }
+}
+
 pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels: &mut LabelMap) {
     /* Pre-initialize all labels from the config file */
     for label in &config.labels {
@@ -102,7 +112,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
             let label = match addr_line {
                 Line::Code(c) => match c.arg {
                     ArgType::Address(arg_addr) => match c.opcode {
-                        Opcode { name: "JSR", addr_mode: AddrMode::Absolute, .. } |
+                        Opcode { name: "JSR", addr_mode: AddrMode::CodeAbsolute, .. } |
                         Opcode { name: "JSL", .. } => {
                             let label_addr = if c.opcode.name == "JSR" { (addr & 0xFF_0000) | (arg_addr & 0xFFFF) } else { arg_addr };
                             Some(Label::new(
@@ -133,7 +143,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                             }
                         },
                         Opcode {
-                            addr_mode: AddrMode::AbsoluteIndexedLong
+                            addr_mode: AddrMode::AbsoluteLongIndexed
                             | AddrMode::AbsoluteIndexedX
                             | AddrMode::AbsoluteIndexedY, ..
                         } if (arg_addr & 0xFFFF) >= 0x0100 => {
@@ -181,7 +191,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                 None
                             }
                         },
-                        Opcode { addr_mode: AddrMode::Relative, .. } => {
+                        Opcode { addr_mode: AddrMode::PcRelative, .. } => {
                             /* Branches */
                             let label_addr = ((*addr as i64) + 2 + i64::from((arg_addr & 0xFF) as i8)) as u64;
                             Some(Label::new(
@@ -189,7 +199,7 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                 format!("BRA_{label_addr:06X}"),
                                 LabelType::Branch))
                         },
-                        Opcode { addr_mode: AddrMode::Absolute | AddrMode::AbsoluteLong, .. } => {
+                        Opcode { addr_mode: AddrMode::Absolute | AddrMode::CodeAbsolute | AddrMode::AbsoluteLong, .. } => {
                             let arg_addr = if c.opcode.addr_mode == AddrMode::AbsoluteLong {
                                 arg_addr
                             } else {

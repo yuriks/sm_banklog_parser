@@ -7,7 +7,7 @@ use crate::label::LabelMap;
 pub enum ArgType {
     None,
     Address(u64),
-    BlockMove(u8, u8)
+    BlockMove(u8, u8),
 }
 
 #[derive(Debug, Clone)]
@@ -29,10 +29,10 @@ impl Code {
         match self.arg {
             ArgType::Address(addr) => {
                 let label_addr = match self.opcode.addr_mode {
-                    AddrMode::Relative => {
+                    AddrMode::PcRelative => {
                         ((self.address as i64) + 2 + i64::from((addr & 0xFF) as i8)) as u64
                     },
-                    AddrMode::RelativeLong => {
+                    AddrMode::PcRelativeLong => {
                         ((self.address as i64) + 2 + i64::from((addr & 0xFFFF) as i16)) as u64
                     },
                     _ => {
@@ -49,8 +49,8 @@ impl Code {
                     }
                 };
 
-                let label = if self.opcode.addr_mode != AddrMode::Relative &&
-                    self.opcode.addr_mode != AddrMode::RelativeLong &&
+                let label = if self.opcode.addr_mode != AddrMode::PcRelative &&
+                    self.opcode.addr_mode != AddrMode::PcRelativeLong &&
                     self.opcode.name != "JSR" &&
                     self.opcode.name != "JSL"
                 {
@@ -105,9 +105,9 @@ impl Code {
     pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
         let arg_label = self.arg_label(config, labels).unwrap_or_default();
         let opcode = match self.opcode.addr_mode {
-            AddrMode::Absolute =>                       format!("{}.w {}", self.opcode.name, arg_label),
+            AddrMode::Absolute | AddrMode::CodeAbsolute => format!("{}.w {}", self.opcode.name, arg_label),
             AddrMode::AbsoluteIndexedIndirect =>        format!("{}.w ({},X)", self.opcode.name, arg_label),
-            AddrMode::AbsoluteIndexedLong =>            format!("{}.l {},X", self.opcode.name, arg_label),
+            AddrMode::AbsoluteLongIndexed =>            format!("{}.l {},X", self.opcode.name, arg_label),
             AddrMode::AbsoluteIndexedX =>               format!("{}.w {},X", self.opcode.name, arg_label),
             AddrMode::AbsoluteIndexedY =>               format!("{}.w {},Y", self.opcode.name, arg_label),
             AddrMode::AbsoluteIndirect =>               format!("{}.w ({})", self.opcode.name, arg_label),
@@ -120,13 +120,13 @@ impl Code {
             AddrMode::DirectIndexedY =>                 format!("{}.b {},Y", self.opcode.name, arg_label),
             AddrMode::DirectIndirect =>                 format!("{}.b ({})", self.opcode.name, arg_label),
             AddrMode::DirectIndirectIndexed =>          format!("{}.b ({}),Y", self.opcode.name, arg_label),
-            AddrMode::DirectIndirectIndexedLong =>      format!("{}.b [{}],Y", self.opcode.name, arg_label),
+            AddrMode::DirectIndirectLongIndexed =>      format!("{}.b [{}],Y", self.opcode.name, arg_label),
             AddrMode::DirectIndirectLong =>             format!("{}.b [{}]", self.opcode.name, arg_label),
             AddrMode::Immediate =>                      format!("{}.{} #{}", self.opcode.name, if self.length == 1 { "b" } else { "w" }, arg_label),
             AddrMode::ImmediateByte =>                  format!("{}.b #{}", self.opcode.name, arg_label),
             AddrMode::Implied =>                        self.opcode.name.to_string(),
-            AddrMode::Relative =>                       format!("{} {}", self.opcode.name, arg_label),
-            AddrMode::RelativeLong =>                   format!("{} {}", self.opcode.name, arg_label),
+            AddrMode::PcRelative =>                     format!("{} {}", self.opcode.name, arg_label),
+            AddrMode::PcRelativeLong =>                 format!("{} {}", self.opcode.name, arg_label),
             AddrMode::StackRelative =>                  format!("{}.b {},S", self.opcode.name, arg_label),
             AddrMode::StackRelativeIndirectIndexed =>   format!("{}.b ({},S),Y", self.opcode.name, arg_label),
         };

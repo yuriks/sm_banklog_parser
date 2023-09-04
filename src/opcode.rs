@@ -17,10 +17,10 @@ lazy_static! {
         0x72 => Opcode::new(0x72, "ADC", AddrMode::DirectIndirect),
         0x73 => Opcode::new(0x73, "ADC", AddrMode::StackRelativeIndirectIndexed),
         0x75 => Opcode::new(0x75, "ADC", AddrMode::DirectIndexedX),
-        0x77 => Opcode::new(0x77, "ADC", AddrMode::DirectIndirectIndexedLong),
+        0x77 => Opcode::new(0x77, "ADC", AddrMode::DirectIndirectLongIndexed),
         0x79 => Opcode::new(0x79, "ADC", AddrMode::AbsoluteIndexedY),
         0x7D => Opcode::new(0x7D, "ADC", AddrMode::AbsoluteIndexedX),
-        0x7F => Opcode::new(0x7F, "ADC", AddrMode::AbsoluteIndexedLong),
+        0x7F => Opcode::new(0x7F, "ADC", AddrMode::AbsoluteLongIndexed),
 
         0x21 => Opcode::new(0x21, "AND", AddrMode::DirectIndexedIndirect),
         0x23 => Opcode::new(0x23, "AND", AddrMode::StackRelative),
@@ -33,10 +33,10 @@ lazy_static! {
         0x32 => Opcode::new(0x32, "AND", AddrMode::DirectIndirect),
         0x33 => Opcode::new(0x33, "AND", AddrMode::StackRelativeIndirectIndexed),
         0x35 => Opcode::new(0x35, "AND", AddrMode::DirectIndexedX),
-        0x37 => Opcode::new(0x37, "AND", AddrMode::DirectIndirectIndexedLong),
+        0x37 => Opcode::new(0x37, "AND", AddrMode::DirectIndirectLongIndexed),
         0x39 => Opcode::new(0x39, "AND", AddrMode::AbsoluteIndexedY),
         0x3D => Opcode::new(0x3D, "AND", AddrMode::AbsoluteIndexedX),
-        0x3F => Opcode::new(0x3F, "AND", AddrMode::AbsoluteIndexedLong),
+        0x3F => Opcode::new(0x3F, "AND", AddrMode::AbsoluteLongIndexed),
 
         0xC1 => Opcode::new(0xC1, "CMP", AddrMode::DirectIndexedIndirect),
         0xC3 => Opcode::new(0xC3, "CMP", AddrMode::StackRelative),
@@ -49,10 +49,10 @@ lazy_static! {
         0xD2 => Opcode::new(0xD2, "CMP", AddrMode::DirectIndirect),
         0xD3 => Opcode::new(0xD3, "CMP", AddrMode::StackRelativeIndirectIndexed),
         0xD5 => Opcode::new(0xD5, "CMP", AddrMode::DirectIndexedX),
-        0xD7 => Opcode::new(0xD7, "CMP", AddrMode::DirectIndirectIndexedLong),
+        0xD7 => Opcode::new(0xD7, "CMP", AddrMode::DirectIndirectLongIndexed),
         0xD9 => Opcode::new(0xD9, "CMP", AddrMode::AbsoluteIndexedY),
         0xDD => Opcode::new(0xDD, "CMP", AddrMode::AbsoluteIndexedX),
-        0xDF => Opcode::new(0xDF, "CMP", AddrMode::AbsoluteIndexedLong),
+        0xDF => Opcode::new(0xDF, "CMP", AddrMode::AbsoluteLongIndexed),
 
         0x41 => Opcode::new(0x41, "EOR", AddrMode::DirectIndexedIndirect),
         0x43 => Opcode::new(0x43, "EOR", AddrMode::StackRelative),
@@ -65,10 +65,10 @@ lazy_static! {
         0x52 => Opcode::new(0x52, "EOR", AddrMode::DirectIndirect),
         0x53 => Opcode::new(0x53, "EOR", AddrMode::StackRelativeIndirectIndexed),
         0x55 => Opcode::new(0x55, "EOR", AddrMode::DirectIndexedX),
-        0x57 => Opcode::new(0x57, "EOR", AddrMode::DirectIndirectIndexedLong),
+        0x57 => Opcode::new(0x57, "EOR", AddrMode::DirectIndirectLongIndexed),
         0x59 => Opcode::new(0x59, "EOR", AddrMode::AbsoluteIndexedY),
         0x5D => Opcode::new(0x5D, "EOR", AddrMode::AbsoluteIndexedX),
-        0x5F => Opcode::new(0x5F, "EOR", AddrMode::AbsoluteIndexedLong),        
+        0x5F => Opcode::new(0x5F, "EOR", AddrMode::AbsoluteLongIndexed),
 
         0xA1 => Opcode::new(0xA1, "LDA", AddrMode::DirectIndexedIndirect),
         0xA3 => Opcode::new(0xA3, "LDA", AddrMode::StackRelative),
@@ -81,10 +81,10 @@ lazy_static! {
         0xB2 => Opcode::new(0xB2, "LDA", AddrMode::DirectIndirect),
         0xB3 => Opcode::new(0xB3, "LDA", AddrMode::StackRelativeIndirectIndexed),
         0xB5 => Opcode::new(0xB5, "LDA", AddrMode::DirectIndexedX),
-        0xB7 => Opcode::new(0xB7, "LDA", AddrMode::DirectIndirectIndexedLong),
+        0xB7 => Opcode::new(0xB7, "LDA", AddrMode::DirectIndirectLongIndexed),
         0xB9 => Opcode::new(0xB9, "LDA", AddrMode::AbsoluteIndexedY),
         0xBD => Opcode::new(0xBD, "LDA", AddrMode::AbsoluteIndexedX),
-        0xBF => Opcode::new(0xBF, "LDA", AddrMode::AbsoluteIndexedLong),  
+        0xBF => Opcode::new(0xBF, "LDA", AddrMode::AbsoluteLongIndexed),
 
         0x01 => Opcode::new(0x01, "ORA", AddrMode::DirectIndexedIndirect),
         0x03 => Opcode::new(0x03, "ORA", AddrMode::StackRelative),
@@ -97,10 +97,10 @@ lazy_static! {
         0x12 => Opcode::new(0x12, "ORA", AddrMode::DirectIndirect),
         0x13 => Opcode::new(0x13, "ORA", AddrMode::StackRelativeIndirectIndexed),
         0x15 => Opcode::new(0x15, "ORA", AddrMode::DirectIndexedX),
-        0x17 => Opcode::new(0x17, "ORA", AddrMode::DirectIndirectIndexedLong),
+        0x17 => Opcode::new(0x17, "ORA", AddrMode::DirectIndirectLongIndexed),
         0x19 => Opcode::new(0x19, "ORA", AddrMode::AbsoluteIndexedY),
         0x1D => Opcode::new(0x1D, "ORA", AddrMode::AbsoluteIndexedX),
-        0x1F => Opcode::new(0x1F, "ORA", AddrMode::AbsoluteIndexedLong),          
+        0x1F => Opcode::new(0x1F, "ORA", AddrMode::AbsoluteLongIndexed),
 
         0xE1 => Opcode::new(0xE1, "SBC", AddrMode::DirectIndexedIndirect),
         0xE3 => Opcode::new(0xE3, "SBC", AddrMode::StackRelative),
@@ -113,10 +113,10 @@ lazy_static! {
         0xF2 => Opcode::new(0xF2, "SBC", AddrMode::DirectIndirect),
         0xF3 => Opcode::new(0xF3, "SBC", AddrMode::StackRelativeIndirectIndexed),
         0xF5 => Opcode::new(0xF5, "SBC", AddrMode::DirectIndexedX),
-        0xF7 => Opcode::new(0xF7, "SBC", AddrMode::DirectIndirectIndexedLong),
+        0xF7 => Opcode::new(0xF7, "SBC", AddrMode::DirectIndirectLongIndexed),
         0xF9 => Opcode::new(0xF9, "SBC", AddrMode::AbsoluteIndexedY),
         0xFD => Opcode::new(0xFD, "SBC", AddrMode::AbsoluteIndexedX),
-        0xFF => Opcode::new(0xFF, "SBC", AddrMode::AbsoluteIndexedLong),    
+        0xFF => Opcode::new(0xFF, "SBC", AddrMode::AbsoluteLongIndexed),
 
         0x81 => Opcode::new(0x81, "STA", AddrMode::DirectIndexedIndirect),
         0x83 => Opcode::new(0x83, "STA", AddrMode::StackRelative),
@@ -129,10 +129,10 @@ lazy_static! {
         0x92 => Opcode::new(0x92, "STA", AddrMode::DirectIndirect),
         0x93 => Opcode::new(0x93, "STA", AddrMode::StackRelativeIndirectIndexed),
         0x95 => Opcode::new(0x95, "STA", AddrMode::DirectIndexedX),
-        0x97 => Opcode::new(0x97, "STA", AddrMode::DirectIndirectIndexedLong),
+        0x97 => Opcode::new(0x97, "STA", AddrMode::DirectIndirectLongIndexed),
         0x99 => Opcode::new(0x99, "STA", AddrMode::AbsoluteIndexedY),
         0x9D => Opcode::new(0x9D, "STA", AddrMode::AbsoluteIndexedX),
-        0x9F => Opcode::new(0x9F, "STA", AddrMode::AbsoluteIndexedLong),    
+        0x9F => Opcode::new(0x9F, "STA", AddrMode::AbsoluteLongIndexed),
 
         0x06 => Opcode::new(0x06, "ASL", AddrMode::Direct),
         0x0A => Opcode::new(0x0A, "ASL", AddrMode::Implied),
@@ -209,17 +209,17 @@ lazy_static! {
         0x9C => Opcode::new(0x9C, "STZ", AddrMode::Absolute),
         0x9E => Opcode::new(0x9E, "STZ", AddrMode::AbsoluteIndexedX),
 
-        0x90 => Opcode::new(0x90, "BCC", AddrMode::Relative),
-        0xB0 => Opcode::new(0xB0, "BCS", AddrMode::Relative),
-        0xF0 => Opcode::new(0xF0, "BEQ", AddrMode::Relative),
-        0x30 => Opcode::new(0x30, "BMI", AddrMode::Relative),
-        0xD0 => Opcode::new(0xD0, "BNE", AddrMode::Relative),
-        0x10 => Opcode::new(0x10, "BPL", AddrMode::Relative),
-        0x80 => Opcode::new(0x80, "BRA", AddrMode::Relative),
-        0x50 => Opcode::new(0x50, "BVC", AddrMode::Relative),
-        0x70 => Opcode::new(0x70, "BVS", AddrMode::Relative),
+        0x90 => Opcode::new(0x90, "BCC", AddrMode::PcRelative),
+        0xB0 => Opcode::new(0xB0, "BCS", AddrMode::PcRelative),
+        0xF0 => Opcode::new(0xF0, "BEQ", AddrMode::PcRelative),
+        0x30 => Opcode::new(0x30, "BMI", AddrMode::PcRelative),
+        0xD0 => Opcode::new(0xD0, "BNE", AddrMode::PcRelative),
+        0x10 => Opcode::new(0x10, "BPL", AddrMode::PcRelative),
+        0x80 => Opcode::new(0x80, "BRA", AddrMode::PcRelative),
+        0x50 => Opcode::new(0x50, "BVC", AddrMode::PcRelative),
+        0x70 => Opcode::new(0x70, "BVS", AddrMode::PcRelative),
 
-        0x82 => Opcode::new(0x82, "BRL", AddrMode::RelativeLong),
+        0x82 => Opcode::new(0x82, "BRL", AddrMode::PcRelativeLong),
 
         0x18 => Opcode::new(0x18, "CLC", AddrMode::Implied),
         0xD8 => Opcode::new(0xD8, "CLD", AddrMode::Implied),
@@ -234,13 +234,13 @@ lazy_static! {
         0xE8 => Opcode::new(0xE8, "INX", AddrMode::Implied),
         0xC8 => Opcode::new(0xC8, "INY", AddrMode::Implied),
 
-        0x4C => Opcode::new(0x4C, "JMP", AddrMode::Absolute),
+        0x4C => Opcode::new(0x4C, "JMP", AddrMode::CodeAbsolute),
         0x5C => Opcode::new(0x5C, "JML", AddrMode::AbsoluteLong),
         0x6C => Opcode::new(0x6C, "JMP", AddrMode::AbsoluteIndirect),
         0x7C => Opcode::new(0x7C, "JMP", AddrMode::AbsoluteIndexedIndirect),
         0xDC => Opcode::new(0xDC, "JML", AddrMode::AbsoluteIndirectLong),
 
-        0x20 => Opcode::new(0x20, "JSR", AddrMode::Absolute),
+        0x20 => Opcode::new(0x20, "JSR", AddrMode::CodeAbsolute),
         0x22 => Opcode::new(0x22, "JSL", AddrMode::AbsoluteLong),
         0xFC => Opcode::new(0xFC, "JSR", AddrMode::AbsoluteIndexedIndirect),
 
@@ -251,7 +251,7 @@ lazy_static! {
 
         0xF4 => Opcode::new(0xF4, "PEA", AddrMode::Absolute),
         0xD4 => Opcode::new(0xD4, "PEI", AddrMode::DirectIndirect),
-        0x62 => Opcode::new(0x62, "PER", AddrMode::RelativeLong),
+        0x62 => Opcode::new(0x62, "PER", AddrMode::PcRelativeLong),
 
         0x48 => Opcode::new(0x48, "PHA", AddrMode::Implied),
         0x8B => Opcode::new(0x8B, "PHB", AddrMode::Implied),
@@ -308,13 +308,29 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddressingBank {
+    /// Instruction does not calculate an effective address
+    None,
+    /// Uses the Data Bank Register as bank source
+    Data,
+    /// Uses the Program Bank Register as bank source
+    Program,
+    /// Bank is always $00
+    Direct,
+    /// Bank is loaded from memory
+    IndirectLong,
+    /// Operand specifies bank
+    Long,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AddrMode {
     Implied,
     Immediate,
     ImmediateByte,
-    Relative,
-    RelativeLong,
+    PcRelative,
+    PcRelativeLong,
     Direct,
     DirectIndexedX,
     DirectIndexedY,
@@ -322,18 +338,59 @@ pub enum AddrMode {
     DirectIndexedIndirect,
     DirectIndirectIndexed,
     DirectIndirectLong,
-    DirectIndirectIndexedLong,
+    DirectIndirectLongIndexed,
     Absolute,
+    /// Same as Absolute, but uses the Program Bank register for destination
+    CodeAbsolute,
     AbsoluteIndexedX,
     AbsoluteIndexedY,
     AbsoluteLong,
-    AbsoluteIndexedLong,
+    AbsoluteLongIndexed,
     StackRelative,
     StackRelativeIndirectIndexed,
     AbsoluteIndirect,
     AbsoluteIndirectLong,
     AbsoluteIndexedIndirect,
     BlockMove
+}
+
+impl AddrMode {
+    #[allow(clippy::enum_glob_use, clippy::match_same_arms)]
+    pub fn bank_source(self) -> AddressingBank {
+        use AddressingBank::*;
+        match self {
+            AddrMode::Implied => None,
+            AddrMode::Immediate => None,
+            AddrMode::ImmediateByte => None,
+            AddrMode::PcRelative => Program,
+            AddrMode::PcRelativeLong => Program,
+
+            AddrMode::Direct => Direct,
+            AddrMode::DirectIndexedX => Direct,
+            AddrMode::DirectIndexedY => Direct,
+            AddrMode::DirectIndirect => Data,
+            AddrMode::DirectIndexedIndirect => Data,
+            AddrMode::DirectIndirectIndexed => Data,
+            AddrMode::DirectIndirectLong => IndirectLong,
+            AddrMode::DirectIndirectLongIndexed => IndirectLong,
+
+            AddrMode::Absolute => Data,
+            AddrMode::AbsoluteIndexedX => Data,
+            AddrMode::AbsoluteIndexedY => Data,
+            AddrMode::AbsoluteLong => Long,
+            AddrMode::AbsoluteLongIndexed => Long,
+
+            AddrMode::StackRelative => Direct,
+            AddrMode::StackRelativeIndirectIndexed => Data,
+
+            AddrMode::CodeAbsolute => Program,
+            AddrMode::AbsoluteIndirect => Program,
+            AddrMode::AbsoluteIndirectLong => IndirectLong,
+            AddrMode::AbsoluteIndexedIndirect => Program,
+
+            AddrMode::BlockMove => None,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -29,6 +29,7 @@ mod config;
 mod directives;
 
 pub type Addr = u64;
+pub type Bank = u8;
 
 fn is_bulk_data(addr: u32) -> bool {
     #[allow(clippy::match_same_arms)]

@@ -7,8 +7,8 @@ use crate::code::{ArgType, Code};
 use crate::config::Config;
 use crate::data::{Data, DataVal};
 use crate::directives::{InstructionPrototype, parse_instruction_prototype};
-use crate::label::LabelMap;
-use crate::opcode::OPCODES;
+use crate::label::{canonicalize_bank, LabelMap};
+use crate::opcode::{AddressingBank, AddrMode, OPCODES};
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
@@ -125,7 +125,7 @@ impl Line {
             let (raw_addr, raw_opcode, _op_name, _op_arg, op_db, comment) = (&cap[1], &cap[2], &cap[4], &cap[5], cap.get(8), cap.get(10));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
             let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
-            let mut arg_addr: u64 = 0;
+            let mut arg_addr: u64 = !0;
             let opcode = &OPCODES[&opcodes[0]];
             let length = (opcodes.len() - 1) as u8;
 
@@ -144,17 +144,46 @@ impl Line {
                 }
             };
 
-            let db = {
-                if let Some(db) = op_db {
-                    if db.as_str().contains(':') && (arg_addr & 0xFFFF) > 0x8000 {
-                        u8::from_str_radix(&db.as_str()[2..4], 16).unwrap()
-                    } else {
-                        ((address >> 16) & 0xFF) as u8
-                    }
-                } else {
-                    ((address >> 16) & 0xFF) as u8
-                }
+            let logged_bank = op_db.and_then(|op_db| if op_db.as_str().contains(':') {
+                Some(u8::from_str_radix(&op_db.as_str()[2..4], 16).unwrap())
+            } else {
+                None
+            });
+
+            let mut db = match logged_bank {
+                Some(logged_bank) if (arg_addr & 0xFFFF) > 0x8000 => logged_bank,
+                _ => ((address >> 16) & 0xFF) as u8,
             };
+
+            let code_bank = (address >> 16) as u8;
+            // (expected bank, estimated address)
+            let expected = match opcode.addr_mode.bank_source() {
+                AddressingBank::None | AddressingBank::Data | AddressingBank::IndirectLong => None,
+                AddressingBank::Program => Some((code_bank, 0x8000)),
+                AddressingBank::Direct => Some((0, arg_addr & 0xFFFF)),
+                AddressingBank::Long => Some(((arg_addr >> 16) as u8, arg_addr & 0xFFFF)),
+            };
+            let canonical_bank = if opcode.addr_mode == AddrMode::AbsoluteLongIndexed
+                && (0x80u64..=0xCF).contains(&(arg_addr >> 16))
+                && (arg_addr & 0xFFFF) < 0x40 {
+                // This is sometimes used for accessing struct fields relative to a pointer to
+                // another bank, which would be incorrectly canonicalized as a WRAM mirror.
+                expected.map(|(bank, _addr)| bank)
+            } else {
+                expected.map(|(bank, addr)| canonicalize_bank((Addr::from(bank) << 16) + addr))
+            };
+
+            // Some of the runtime effective addresses in the bank logs are impossible given the
+            // instructions they're applied to. Until those are fixed, correcting these here fixes
+            // some incorrect generated labels.
+            if let Some((expected_bank, logged_bank)) = canonical_bank.zip(logged_bank) {
+                if logged_bank != expected_bank {
+                    // TODO: This warning should be re-enabled once the bank logs are corrected
+                    //eprintln!("Nonsensical {} with bank ${logged_db:02X} (expected ${expected_bank:02X}) at ${address:06X}:", opcode.name);
+                    //eprintln!("    {line}");
+                    db = expected_bank;
+                }
+            }
 
             let comment = comment.map(|c| c.as_str()[1..].to_owned());
 
