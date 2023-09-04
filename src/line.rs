@@ -2,7 +2,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::{Addr, FileParsingState, SpecialParsingType};
+use crate::{Addr, Bank, FileParsingState, SpecialParsingType};
 use crate::code::{ArgType, Code};
 use crate::config::Config;
 use crate::data::{Data, DataVal};
@@ -12,7 +12,7 @@ use crate::opcode::{AddressingBank, AddrMode, OPCODES};
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
-    static ref CODE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*([A-Z]{3})\s*(([#\$A-F0-9sxy,()\[\]])*?)\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
+    static ref CODE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*((?: ?[0-9A-F]{2})+)\s*([A-Z]{3})\s*([#\$A-F0-9sxy,()\[\]]*?)\s*(\[\$(?:([0-9A-F]{2}):)?([0-9A-F]{4})\])?\s*(;.*)*$").unwrap();
     static ref BLOCKMOVE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*(MVN|MVP) [0-9A-F]{2} [0-9A-F]{2}\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
     static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
     static ref DATA_START_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})(/\$[0-9A-F]{4}|)\s*(|db|dw|dl|dx|dW)\s*((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
@@ -122,7 +122,7 @@ impl Line {
 
             (Some(address), Line::Code(code))
         } else if let Some(cap) = CODE_REGEX.captures(line) {
-            let (raw_addr, raw_opcode, _op_name, _op_arg, op_db, comment) = (&cap[1], &cap[2], &cap[4], &cap[5], cap.get(8), cap.get(10));
+            let (raw_addr, raw_opcode, _op_name, _op_arg, op_logged_db, op_logged_addr, comment) = (&cap[1], &cap[2], &cap[3], &cap[4], cap.get(6), cap.get(7), cap.get(8));
             let address: u64 = u64::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
             let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
             let mut arg_addr: u64 = !0;
@@ -144,14 +144,17 @@ impl Line {
                 }
             };
 
-            let logged_bank = op_db.and_then(|op_db| if op_db.as_str().contains(':') {
-                Some(u8::from_str_radix(&op_db.as_str()[2..4], 16).unwrap())
-            } else {
-                None
-            });
+            let logged_addr = match (op_logged_db, op_logged_addr) {
+                (Some(op_logged_db), Some(op_logged_addr)) => {
+                    Some((
+                        Bank::from_str_radix(op_logged_db.as_str(), 16).unwrap(),
+                        Addr::from_str_radix(op_logged_addr.as_str(), 16).unwrap()))
+                },
+                _ => None,
+            };
 
-            let mut db = match logged_bank {
-                Some(logged_bank) if (arg_addr & 0xFFFF) > 0x8000 => logged_bank,
+            let mut db = match logged_addr {
+                Some((logged_bank, _)) if (arg_addr & 0xFFFF) > 0x8000 => logged_bank,
                 _ => ((address >> 16) & 0xFF) as u8,
             };
 
@@ -176,7 +179,7 @@ impl Line {
             // Some of the runtime effective addresses in the bank logs are impossible given the
             // instructions they're applied to. Until those are fixed, correcting these here fixes
             // some incorrect generated labels.
-            if let Some((expected_bank, logged_bank)) = canonical_bank.zip(logged_bank) {
+            if let Some((expected_bank, (logged_bank, _))) = canonical_bank.zip(logged_addr) {
                 if logged_bank != expected_bank {
                     // TODO: This warning should be re-enabled once the bank logs are corrected
                     //eprintln!("Nonsensical {} with bank ${logged_db:02X} (expected ${expected_bank:02X}) at ${address:06X}:", opcode.name);
