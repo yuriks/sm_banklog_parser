@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use glob::glob;
 use serde::Deserialize;
 use crate::Bank;
@@ -46,6 +47,19 @@ pub enum OverrideAddr {
     Range(u64, u64)
 }
 
+impl Display for OverrideAddr {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            OverrideAddr::Address(addr) => {
+                write!(f, "${addr:06X}")
+            },
+            OverrideAddr::Range(range_begin, range_end) => {
+                write!(f, "${range_begin:06X}..${range_end:06X}")
+            },
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Override {
     pub addr: OverrideAddr,
@@ -91,7 +105,8 @@ impl Config {
                 };
 
                 Some(Override {
-                    addr: OverrideAddr::Range(l.addr, l.addr + (length * 2)),
+                    // Address ranges are inclusive
+                    addr: OverrideAddr::Range(l.addr, l.addr + (length * 2) - 1),
                     db: Some((l.addr >> 16) as Bank),
                     struct_: None,
                     type_: Some(override_type),

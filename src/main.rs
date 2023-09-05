@@ -6,6 +6,7 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::cast_possible_wrap)]
 #![allow(clippy::no_effect_underscore_binding)]
+#![allow(clippy::verbose_bit_mask)]
 
 use std::{collections::BTreeMap, fs::File, io::{BufRead, BufReader, Write}};
 use std::collections::btree_map::Entry;
@@ -30,6 +31,14 @@ mod directives;
 
 pub type Addr = u64;
 pub type Bank = u8;
+
+pub(crate) fn addr_with_bank(bank: Bank, addr: Addr) -> Addr {
+    (Addr::from(bank) << 16) + (addr & 0xFFFF)
+}
+
+pub(crate) fn split_addr(addr: Addr) -> (Bank, Addr) {
+    ((addr >> 16) as Bank, addr & 0xFFFF)
+}
 
 fn is_bulk_data(addr: u32) -> bool {
     #[allow(clippy::match_same_arms)]
