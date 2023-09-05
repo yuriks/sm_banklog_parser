@@ -61,14 +61,30 @@ impl Code {
                 };
 
                 let label = label_addr.and_then(|label_addr| {
-                    if self.opcode.addr_mode != AddrMode::PcRelative
-                        && self.opcode.addr_mode != AddrMode::PcRelativeLong
-                        && self.opcode.name != "JSR"
-                        && self.opcode.name != "JSL"
+                    if self.opcode.addr_mode == AddrMode::PcRelative
+                        || self.opcode.addr_mode == AddrMode::PcRelativeLong
+                        || self.opcode.name == "JSR"
+                        || self.opcode.name == "JSL"
                     {
-                        labels.get_label_fuzzy(label_addr)
-                    } else {
                         labels.get_label(label_addr).map(|l| (l, 0))
+                    } else if self.opcode.name == "PEA" {
+                        let label_low_addr = label_addr as u16;
+                        if (label_low_addr & 0x00FF) == 0
+                            || (label_low_addr & 0xFF) == (label_low_addr >> 8)
+                        {
+                            // TODO: Allow override
+                            // PEA of the form $db00 or $dbdb are usually used as part of a
+                            // PEA : PLB : PLB sequence to change bank, rather than as a
+                            // code label.
+                            None
+                        } else {
+                            // Otherwise, it's probably being used to push an address for
+                            // an RTS to return to. RTS increments the popped address, so
+                            // adjust the created label so it's correctly placed.
+                            labels.get_label(label_addr.wrapping_add_signed(1)).map(|l| (l, 1))
+                        }
+                    } else {
+                        labels.get_label_fuzzy(label_addr)
                     }
                 });
 

@@ -357,8 +357,6 @@ fn generate_label_for_line_operands(config: &Config, c: &Code) -> Option<Label> 
             let prefix = match (label_bank, label_low_addr) {
                 _ if c.opcode.name == "PEA" => {
                     // TODO: override support
-                    // TODO: This check should also be done during codegen to avoid
-                    //       using neighboring labels spuriously.
                     if (label_low_addr & 0x00FF) == 0
                         || (label_low_addr & 0xFF) == (label_low_addr >> 8)
                     {
