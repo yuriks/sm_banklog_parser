@@ -1,7 +1,12 @@
 use std::fmt::Write;
 
-use crate::{Bank, config::Config, InstructionPrototype, opcode::{AddrMode, Opcode}};
 use crate::label::LabelMap;
+use crate::opcode::StaticAddress;
+use crate::{
+    config::Config,
+    opcode::{AddrMode, Opcode},
+    Addr, Bank, InstructionPrototype,
+};
 
 #[derive(Debug, Clone)]
 pub enum ArgType {
@@ -36,90 +41,79 @@ impl Code {
                     override_db = override_.db;
                 }
 
-                let label_addr = match self.opcode.addr_mode {
-                    AddrMode::PcRelative => {
-                        ((self.address as i64) + 2 + i64::from((addr & 0xFF) as i8)) as u64
-                    },
-                    AddrMode::PcRelativeLong => {
-                        ((self.address as i64) + 2 + i64::from((addr & 0xFFFF) as i16)) as u64
-                    },
-                    _ => {
-                        match self.length {
-                            1 => {
-                                if override_db.is_some() {
-                                    println!("DB override used with Direct adressing at {:06X}, ignoring.", self.address);
-                                }
-                                0x7E_0000 | (addr & 0xFF)
-                            },
-                            2 => (u64::from(override_db.unwrap_or(self.db)) << 16) | (addr & 0xFFFF),
-                            3 => {
-                                if override_db.is_some() {
-                                    println!("DB override used with Long adressing at {:06X}, ignoring.", self.address);
-                                }
-                                addr
-                            },
-                            _ => panic!("Invalid argument length")
-                        }
+                let label_addr = self.static_label_address();
+                if override_db.is_some()
+                    && !matches!(
+                        label_addr,
+                        StaticAddress::Data(_) | StaticAddress::Immediate(_)
+                    )
+                {
+                    eprintln!("Instruction at ${:06X} has operand DB override, but addressing mode doesn't depend on DB.", self.address);
+                }
+                let label_addr = match label_addr {
+                    StaticAddress::None => None,
+                    StaticAddress::Long(addr) => Some(addr),
+                    StaticAddress::Data(addr) => {
+                        Some((Addr::from(override_db.unwrap_or(self.db)) << 16) + Addr::from(addr))
                     }
+                    StaticAddress::Immediate(imm) => override_db
+                        .map(|label_bank| (Addr::from(label_bank) << 16) + Addr::from(imm)),
                 };
 
-                let label = if self.opcode.addr_mode != AddrMode::PcRelative &&
-                    self.opcode.addr_mode != AddrMode::PcRelativeLong &&
-                    self.opcode.name != "JSR" &&
-                    self.opcode.name != "JSL"
-                {
-                    labels.get_label_fuzzy(label_addr)
-                } else {
-                    labels.get_label(label_addr).map(|l| (l, 0))
-                };
+                let label = label_addr.and_then(|label_addr| {
+                    if self.opcode.addr_mode != AddrMode::PcRelative
+                        && self.opcode.addr_mode != AddrMode::PcRelativeLong
+                        && self.opcode.name != "JSR"
+                        && self.opcode.name != "JSL"
+                    {
+                        labels.get_label_fuzzy(label_addr)
+                    } else {
+                        labels.get_label(label_addr).map(|l| (l, 0))
+                    }
+                });
 
                 let result = match label {
-                    Some((l, offset)) => {
+                    Some((l, offset)) if !l.is_blocked() => {
                         l.use_from(self.address);
 
-                        let is_immediate = matches!(self.opcode.addr_mode, AddrMode::Immediate | AddrMode::ImmediateByte);
-                        #[allow(clippy::nonminimal_bool)]
-                        if !l.is_blocked() && !(is_immediate && override_.is_none()) {
-                            match offset {
-                                0 => l.name.to_string(),
-                                -1 | -2 => format!("{}+{}", l.name, -offset),
-                                1 | 2 => format!("{}{}", l.name, -offset),
-                                _ => panic!("Invalid argument length")
-                            }
-                        } else {
-                            match self.length {
-                                1 => format!("${addr:02X}"),
-                                2 => format!("${addr:04X}"),
-                                3 => format!("${addr:06X}"),
-                                _ => panic!("Invalid argument length")
-                            }
-                        }
-                    },
-                    None => {
-                        match self.length {
-                            1 => format!("${addr:02X}"),
-                            2 => format!("${addr:04X}"),
-                            3 => format!("${addr:06X}"),
-                            _ => panic!("Invalid argument length")
+                        match offset {
+                            0 => l.name.to_string(),
+                            -1 | -2 => format!("{}+{}", l.name, -offset),
+                            1 | 2 => format!("{}{}", l.name, -offset),
+                            _ => panic!("Invalid argument length"),
                         }
                     }
+                    _ => match self.length {
+                        1 => format!("${addr:02X}"),
+                        2 => format!("${addr:04X}"),
+                        3 => format!("${addr:06X}"),
+                        _ => panic!("Invalid argument length"),
+                    },
                 };
 
                 Some(result)
-            },
-            ArgType::BlockMove(src, dst) => {
-                Some(format!("${src:02X},${dst:02X}"))
-            },
-            ArgType::None => None
+            }
+            ArgType::BlockMove(src, dst) => Some(format!("${src:02X},${dst:02X}")),
+            ArgType::None => None,
         }
     }
-}
 
-impl Code {
+    pub fn static_label_address(&self) -> StaticAddress {
+        match self.arg {
+            ArgType::Address(operand) => self.opcode.addr_mode.static_label_address(
+                self.address,
+                1 + u16::from(self.length),
+                operand,
+            ),
+            ArgType::None | ArgType::BlockMove(_, _) => StaticAddress::None,
+        }
+    }
+
     //noinspection IncorrectFormatting
     #[allow(clippy::match_same_arms)]
     pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
         let arg_label = self.arg_label(config, labels).unwrap_or_default();
+        #[rustfmt::skip]
         let opcode = match self.opcode.addr_mode {
             AddrMode::Absolute | AddrMode::CodeAbsolute => format!("{}.w {}", self.opcode.name, arg_label),
             AddrMode::AbsoluteIndexedIndirect =>        format!("{}.w ({},X)", self.opcode.name, arg_label),

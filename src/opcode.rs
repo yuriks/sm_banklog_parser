@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
+use crate::opcode::StaticAddress::Data;
+use crate::{Addr, Bank};
 use lazy_static::lazy_static;
 
 lazy_static! {
     pub static ref OPCODES: HashMap<u8, Opcode> = maplit::hashmap! {
         0x00 => Opcode::new(0x00, "BRK", AddrMode::Immediate),
-        
+
         0x61 => Opcode::new(0x61, "ADC", AddrMode::DirectIndexedIndirect),
         0x63 => Opcode::new(0x63, "ADC", AddrMode::StackRelative),
         0x65 => Opcode::new(0x65, "ADC", AddrMode::Direct),
@@ -227,7 +229,7 @@ lazy_static! {
         0xB8 => Opcode::new(0xB8, "CLV", AddrMode::Implied),
 
         0x02 => Opcode::new(0x02, "COP", AddrMode::Immediate),
-        
+
         0xCA => Opcode::new(0xCA, "DEX", AddrMode::Implied),
         0x88 => Opcode::new(0x88, "DEY", AddrMode::Implied),
 
@@ -300,9 +302,9 @@ lazy_static! {
         0x04 => Opcode::new(0x04, "TSB", AddrMode::Direct),
         0x0C => Opcode::new(0x0C, "TSB", AddrMode::Absolute),
 
-        0xCB => Opcode::new(0xCB, "WAI", AddrMode::Implied),        
+        0xCB => Opcode::new(0xCB, "WAI", AddrMode::Implied),
         0x42 => Opcode::new(0x42, "WDM", AddrMode::Immediate),
-        
+
         0xEB => Opcode::new(0xEB, "XBA", AddrMode::Implied),
         0xFB => Opcode::new(0xDB, "XCE", AddrMode::Implied)
     };
@@ -351,7 +353,18 @@ pub enum AddrMode {
     AbsoluteIndirect,
     AbsoluteIndirectLong,
     AbsoluteIndexedIndirect,
-    BlockMove
+    BlockMove,
+}
+
+pub enum StaticAddress {
+    /// No static addressing info
+    None,
+    /// Full 24-bit address
+    Long(Addr),
+    /// 16-bit address in the current Data Bank
+    Data(u16),
+    /// Immediate value (may be mapped into a label by an override)
+    Immediate(u16),
 }
 
 impl AddrMode {
@@ -415,11 +428,73 @@ impl AddrMode {
             _ => self.effective_bank_source(),
         }
     }
+
+    pub fn static_label_address(
+        self,
+        instr_addr: Addr,
+        instr_length: u16,
+        operand: u64,
+    ) -> StaticAddress {
+        fn addr_in_bank(bank: Bank, addr: u16) -> StaticAddress {
+            StaticAddress::Long((Addr::from(bank) << 16) + Addr::from(addr))
+        }
+
+        let program_bank = (instr_addr >> 16) as Bank;
+        let pc = instr_addr as u16;
+        let next_pc = pc.wrapping_add(instr_length);
+        let dp_base = 0u16;
+
+        let operand_b = (operand & 0xFF) as u8;
+        let operand_sb = operand_b as i8;
+        let operand_w = (operand & 0xFFFF) as u16;
+        let operand_sw = operand_w as i16;
+        let operand_l = operand & 0xFF_FFFF;
+
+        match self {
+            AddrMode::Immediate | AddrMode::ImmediateByte => StaticAddress::Immediate(operand_w),
+
+            AddrMode::Implied
+            | AddrMode::BlockMove
+            | AddrMode::StackRelative
+            | AddrMode::StackRelativeIndirectIndexed => StaticAddress::None,
+
+            AddrMode::PcRelative => addr_in_bank(
+                program_bank,
+                next_pc.wrapping_add_signed(i16::from(operand_sb)),
+            ),
+            AddrMode::PcRelativeLong => {
+                addr_in_bank(program_bank, next_pc.wrapping_add_signed(operand_sw))
+            }
+
+            AddrMode::Direct
+            | AddrMode::DirectIndexedX
+            | AddrMode::DirectIndexedY
+            | AddrMode::DirectIndirect
+            | AddrMode::DirectIndexedIndirect
+            | AddrMode::DirectIndirectIndexed
+            | AddrMode::DirectIndirectLong
+            | AddrMode::DirectIndirectLongIndexed => {
+                addr_in_bank(0x00, dp_base.wrapping_add(u16::from(operand_b)))
+            }
+
+            AddrMode::Absolute | AddrMode::AbsoluteIndexedX | AddrMode::AbsoluteIndexedY => {
+                Data(operand_w)
+            }
+            AddrMode::AbsoluteLong | AddrMode::AbsoluteLongIndexed => {
+                StaticAddress::Long(operand_l)
+            }
+            AddrMode::CodeAbsolute | AddrMode::AbsoluteIndexedIndirect => {
+                addr_in_bank(program_bank, operand_w)
+            }
+            AddrMode::AbsoluteIndirect | AddrMode::AbsoluteIndirectLong => {
+                addr_in_bank(0x00, operand_w)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct Opcode
-{
+pub struct Opcode {
     pub opcode: u8,
     pub name: &'static str,
     pub addr_mode: AddrMode,
@@ -427,6 +502,10 @@ pub struct Opcode
 
 impl Opcode {
     fn new(opcode: u8, name: &'static str, addr_mode: AddrMode) -> Self {
-        Self { opcode, name, addr_mode }
+        Self {
+            opcode,
+            name,
+            addr_mode,
+        }
     }
 }
