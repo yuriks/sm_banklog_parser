@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::{Addr, SpecialParsingType};
+use crate::{Addr, addr_with_bank, Bank, SpecialParsingType};
 use crate::config::{Config, OverrideType};
 use crate::directives::InstructionPrototype;
 use crate::label::{LabelMap, LabelType};
@@ -62,7 +62,7 @@ impl DataVal {
 
 #[derive(Debug, Clone)]
 pub struct Data {
-    pub address: u64,
+    pub address: Addr,
     pub data: Vec<DataVal>,
     pub comment: Option<String>,
     pub special_type: Option<SpecialParsingType>,
@@ -284,9 +284,9 @@ impl Data {
         output
     }
 
-    fn emit_data_atom(&self, config: &Config, labels: &LabelMap, cur_pc: u64, output: &mut String, d: DataVal) {
+    fn emit_data_atom(&self, config: &Config, labels: &LabelMap, cur_pc: Addr, output: &mut String, d: DataVal) {
         if let DataVal::DL(dl) = d {
-            if let Some(label) = labels.get(&u64::from(dl)) {
+            if let Some(label) = labels.get(&Addr::from(dl)) {
                 output.push_str(&label.name);
                 return;
             }
@@ -295,7 +295,7 @@ impl Data {
         if let Some(ov) = config.get_override(cur_pc) {
             match ov.type_ {
                 Some(OverrideType::Pointer | OverrideType::Data) => {
-                    let db = ov.db.map_or(cur_pc >> 16, u64::from);
+                    let db = ov.db.map_or(cur_pc >> 16, Addr::from);
                     let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
                     if let Some(label) = labels.get(&label_addr) {
                         output.push_str(&label.name);
@@ -309,8 +309,8 @@ impl Data {
                         let cur_offset = cur_pc - self.address;
                         let cur_st_offset = cur_offset % st_len;
                         let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
-                        let db = field.db.unwrap_or(cur_pc >> 16);
-                        let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
+                        let db = field.db.unwrap_or((cur_pc >> 16) as Bank);
+                        let label_addr = if field.length < 3 { addr_with_bank(db, d.as_u64()) } else { d.as_u64() };
                         if field.type_ == OverrideType::Pointer && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
                             output.push_str(&labels[&label_addr].name);
                             return;

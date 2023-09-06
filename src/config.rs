@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use glob::glob;
 use serde::Deserialize;
-use crate::Bank;
+use crate::{Addr, Bank};
 
 use crate::label::LabelType;
 
@@ -22,7 +22,7 @@ pub struct StructField {
     pub length: u64,
     #[serde(rename = "type")]
     pub type_: OverrideType,
-    pub db: Option<u64>
+    pub db: Option<Bank>
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -33,7 +33,7 @@ pub struct Struct {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Label {
-    pub addr: u64,
+    pub addr: Addr,
     pub name: String,
     // Needs to be an Option because default doesn't work: https://github.com/serde-rs/serde/issues/1626
     #[serde(rename = "type", flatten, default)]
@@ -43,8 +43,8 @@ pub struct Label {
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum OverrideAddr {
-    Address(u64),
-    Range(u64, u64)
+    Address(Addr),
+    Range(Addr, Addr)
 }
 
 impl Display for OverrideAddr {
@@ -118,7 +118,7 @@ impl Config {
         Config { labels, overrides, structs }
     }
 
-    pub fn get_override(&self, addr: u64) -> Option<&Override> {
+    pub fn get_override(&self, addr: Addr) -> Option<&Override> {
         self.overrides.iter().find(|o| match &o.addr {
             OverrideAddr::Address(a) if *a == addr => true,
             OverrideAddr::Range(a, b) if addr >= *a && addr <= *b => true,

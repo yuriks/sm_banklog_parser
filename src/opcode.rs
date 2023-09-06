@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::opcode::StaticAddress::Data;
 use crate::{Addr, Bank};
 use lazy_static::lazy_static;
 
@@ -356,15 +355,18 @@ pub enum AddrMode {
     BlockMove,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum StaticAddress {
     /// No static addressing info
     None,
     /// Full 24-bit address
     Long(Addr),
     /// 16-bit address in the current Data Bank
-    Data(u16),
-    /// Immediate value (may be mapped into a label by an override)
+    DataBank(u16),
+    /// Immediate value or stack offset (may be mapped into a label by an override)
     Immediate(u16),
+    /// Block move, the odd one out
+    BlockMove { src: u8, dst: u8 },
 }
 
 impl AddrMode {
@@ -433,7 +435,7 @@ impl AddrMode {
         self,
         instr_addr: Addr,
         instr_length: u16,
-        operand: u64,
+        operand: u32,
     ) -> StaticAddress {
         fn addr_in_bank(bank: Bank, addr: u16) -> StaticAddress {
             StaticAddress::Long((Addr::from(bank) << 16) + Addr::from(addr))
@@ -451,12 +453,17 @@ impl AddrMode {
         let operand_l = operand & 0xFF_FFFF;
 
         match self {
-            AddrMode::Immediate | AddrMode::ImmediateByte => StaticAddress::Immediate(operand_w),
-
-            AddrMode::Implied
-            | AddrMode::BlockMove
+            AddrMode::Immediate
+            | AddrMode::ImmediateByte
             | AddrMode::StackRelative
-            | AddrMode::StackRelativeIndirectIndexed => StaticAddress::None,
+            | AddrMode::StackRelativeIndirectIndexed => StaticAddress::Immediate(operand_w),
+
+            AddrMode::Implied => StaticAddress::None,
+
+            AddrMode::BlockMove => StaticAddress::BlockMove {
+                src: (operand_w & 0x00FF) as u8,
+                dst: (operand_w >> 8) as u8,
+            },
 
             AddrMode::PcRelative => addr_in_bank(
                 program_bank,
@@ -478,10 +485,10 @@ impl AddrMode {
             }
 
             AddrMode::Absolute | AddrMode::AbsoluteIndexedX | AddrMode::AbsoluteIndexedY => {
-                Data(operand_w)
+                StaticAddress::DataBank(operand_w)
             }
             AddrMode::AbsoluteLong | AddrMode::AbsoluteLongIndexed => {
-                StaticAddress::Long(operand_l)
+                StaticAddress::Long(u64::from(operand_l))
             }
             AddrMode::CodeAbsolute | AddrMode::AbsoluteIndexedIndirect => {
                 addr_in_bank(program_bank, operand_w)

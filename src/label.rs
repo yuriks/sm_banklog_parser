@@ -16,11 +16,11 @@ use crate::{
     split_addr, Addr, Bank,
 };
 
-pub struct LabelMap(pub(crate) BTreeMap<u64, Label>);
+pub struct LabelMap(pub(crate) BTreeMap<Addr, Label>);
 //pub type LabelMap = BTreeMap<u64, Label>;
 
 impl Deref for LabelMap {
-    type Target = BTreeMap<u64, Label>;
+    type Target = BTreeMap<Addr, Label>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -32,11 +32,11 @@ impl LabelMap {
         LabelMap(BTreeMap::new())
     }
 
-    pub fn get_label(&self, label_addr: u64) -> Option<&Label> {
+    pub fn get_label(&self, label_addr: Addr) -> Option<&Label> {
         self.0.get(&label_addr)
     }
 
-    pub fn get_label_fuzzy(&self, label_addr: u64) -> Option<(&Label, i64)> {
+    pub fn get_label_fuzzy(&self, label_addr: Addr) -> Option<(&Label, i64)> {
         for offset in [0, -1, 1, -2, 2] {
             if let Some(label) = self.0.get(&label_addr.wrapping_add_signed(offset)) {
                 return Some((label, offset));
@@ -67,7 +67,7 @@ pub enum LabelType {
 
 #[derive(Debug)]
 pub struct Label {
-    pub address: u64,
+    pub address: Addr,
     pub name: String,
     pub label_type: LabelType,
     pub assigned: Cell<bool>,
@@ -75,7 +75,7 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new(address: u64, name: String, label_type: LabelType) -> Self {
+    pub fn new(address: Addr, name: String, label_type: LabelType) -> Self {
         Label {
             address,
             name,
@@ -85,7 +85,7 @@ impl Label {
         }
     }
 
-    pub fn use_from(&self, use_addr: u64) {
+    pub fn use_from(&self, use_addr: Addr) {
         if use_addr >> 16 != self.address >> 16 {
             self.external.set(true);
         }
@@ -115,7 +115,7 @@ pub fn canonicalize_addr(addr: Addr) -> Addr {
 }
 
 #[rustfmt::skip]
-pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels: &mut LabelMap) {
+pub fn generate_labels(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels: &mut LabelMap) {
     /* Pre-initialize all labels from the config file */
     for label in &config.labels {
         labels.0.entry(label.addr).or_insert(Label::new(
@@ -158,8 +158,8 @@ pub fn generate_labels(lines: &BTreeMap<u64, Vec<Line>>, config: &Config, labels
                                         let cur_st_offset = cur_offset % st_len;
                                         let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
                                         if field.type_ == OverrideType::Pointer {
-                                            let db = field.db.unwrap_or(cur_pc >> 16);
-                                            let label_addr = if field.length < 3 { (d.as_u64() & 0xFFFF_u64) | (db << 16) } else { d.as_u64() };
+                                            let db = field.db.unwrap_or((cur_pc >> 16) as Bank);
+                                            let label_addr = if field.length < 3 { addr_with_bank(db, d.as_u64()) } else { d.as_u64() };
                                             if (label_addr & 0xFFFF) >= 0x8000 {
                                                 labels.0.entry(label_addr).or_insert(Label::new(
                                                     label_addr,
@@ -212,11 +212,11 @@ fn generate_label_for_line_operands(config: &Config, c: &Code) -> Option<Label> 
         override_db = override_.db;
     }
 
-    let label_addr = c.static_label_address();
+    let label_addr = c.get_operand();
     if override_db.is_some()
         && !matches!(
             label_addr,
-            StaticAddress::Data(_) | StaticAddress::Immediate(_)
+            StaticAddress::DataBank(_) | StaticAddress::Immediate(_)
         )
     {
         eprintln!(
@@ -224,9 +224,9 @@ fn generate_label_for_line_operands(config: &Config, c: &Code) -> Option<Label> 
             c.address, override_.unwrap().addr);
     }
     let label_addr = match label_addr {
-        StaticAddress::None => None,
+        StaticAddress::None | StaticAddress::BlockMove { .. } => None,
         StaticAddress::Long(addr) => Some(addr),
-        StaticAddress::Data(addr) => {
+        StaticAddress::DataBank(addr) => {
             Some((Addr::from(override_db.unwrap_or(c.db)) << 16) + Addr::from(addr))
         }
         StaticAddress::Immediate(imm) => {
