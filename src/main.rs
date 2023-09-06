@@ -211,21 +211,15 @@ fn main() {
 
     /* copy enemy-banks to respective new bank */
     let enemy_banks = [0xA2u8, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3];
-    let enemy_lines: BTreeMap<u64, Vec<Line>> = lines.iter().filter(|(k, _)| **k >= 0xA0_8000 && **k <= 0xA0_8686).map(|(k, v)| (*k, v.clone())).collect();
-    for addr_line in &enemy_lines {
+    let mut new_lines = Vec::new();
+    for (&addr, addr_lines) in lines.range(0xA0_8000..=0xA0_8686) {
         for bank in enemy_banks {
-            let mut new_lines = Vec::new();
-            let new_addr = addr_with_bank(bank, *addr_line.0);
-            for line in addr_line.1 {
+            let mut new_addr_lines = Vec::new();
+            let new_addr = addr_with_bank(bank, addr);
+
+            for line in addr_lines {
                 let new_line = match line {
                     Line::Code(c) => {
-                        // TODO: Review this usage of raw_operand
-                        let new_arg = if c.operand_size == 3 && (new_addr & 0xFFFF) > 0x804D {
-                            addr_with_bank(bank, Addr::from(c.raw_operand))
-                        } else {
-                            Addr::from(c.raw_operand)
-                        };
-
                         if let Some(instr_proto) = &c.instruction_prototype {
                             match global_state.labels.0.entry(new_addr) {
                                 Entry::Vacant(e) => {
@@ -240,30 +234,21 @@ fn main() {
                             }
                         }
 
-                        Line::Code(Code {
-                            address: new_addr,
-                            db: if c.db == 0xA0 { bank } else { c.db },
-                            raw_operand: new_arg as u32,
-                            ..c.clone()
-                        })
+                        Line::Code(Code { address: addr_with_bank(bank, c.address), ..c.clone() })
                     },
                     Line::Data(d) => {
-                        Line::Data(Data {
-                            address: addr_with_bank(bank, d.address),
-                            comment: d.comment.clone(),
-                            data: d.data.clone(),
-                            special_type: d.special_type,
-                        })
+                        Line::Data(Data { address: addr_with_bank(bank, d.address), ..d.clone() })
                     },
-                    Line::Comment(c) => Line::Comment(c.to_string())
+                    Line::Comment(c) => Line::Comment(c.clone())
                 };
 
-                new_lines.push(new_line);
+                new_addr_lines.push(new_line);
             }
 
-            lines.insert(new_addr, new_lines);
+            new_lines.push((new_addr, new_addr_lines));
         }
     }
+    lines.extend(new_lines.into_iter());
 
     /* Autogenerate labels */
     label::generate_labels(&lines, &config, &mut global_state.labels);
