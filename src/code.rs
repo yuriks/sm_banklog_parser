@@ -1,12 +1,8 @@
 use std::fmt::Write;
 
-use crate::label::LabelMap;
-use crate::opcode::StaticAddress;
-use crate::{
-    config::Config,
-    opcode::{AddrMode, Opcode},
-    Addr, Bank, InstructionPrototype,
-};
+use crate::{Addr, addr_with_bank, Bank, config::Config, InstructionPrototype, opcode::{AddrMode, Opcode}, split_addr};
+use crate::label::{canonicalize_bank, LabelMap};
+use crate::opcode::{AddressingBank, StaticAddress};
 
 #[derive(Debug, Clone)]
 pub struct Code {
@@ -16,8 +12,7 @@ pub struct Code {
     pub operand_size: u8,
     pub comment: Option<String>,
 
-    // TODO: Rename to "label_bank"
-    pub db: Bank,
+    pub logged_bank: Option<Bank>,
 
     pub instruction_prototype: Option<InstructionPrototype>,
 }
@@ -56,7 +51,8 @@ impl Code {
             StaticAddress::None => None,
             StaticAddress::Long(addr) => Some(addr),
             StaticAddress::DataBank(addr) => {
-                Some((Addr::from(override_db.unwrap_or(self.db)) << 16) + Addr::from(addr))
+                let db = self.estimate_operand_canonical_bank().unwrap_or(0xFF);
+                Some((Addr::from(override_db.unwrap_or(db)) << 16) + Addr::from(addr))
             }
             StaticAddress::Immediate(imm) => {
                 override_db.map(|label_bank| (Addr::from(label_bank) << 16) + Addr::from(imm))
@@ -122,6 +118,31 @@ impl Code {
             1 + u16::from(self.operand_size),
             self.raw_operand,
         )
+    }
+
+    pub fn estimate_operand_canonical_bank(&self) -> Option<Bank> {
+        let (code_bank, _) = split_addr(self.address);
+        let label_bank = match self.opcode.addr_mode.label_bank_source() {
+            AddressingBank::None => None,
+            // TODO: These need to be replaced by better instruction emulation to handle PC-relative, etc.
+            AddressingBank::Data => Some((self.logged_bank.unwrap_or(code_bank), self.raw_operand & 0xFFFF)),
+            AddressingBank::Program => Some((code_bank, self.raw_operand & 0xFFFF)),
+            AddressingBank::Direct => Some((0, self.raw_operand & 0xFFFF)),
+            AddressingBank::Long => Some(((self.raw_operand >> 16) as u8, self.raw_operand & 0xFFFF)),
+            AddressingBank::IndirectLong => unreachable!("IndirectLong should never be a label bank source"),
+        };
+
+        let canonical_bank = if self.opcode.addr_mode == AddrMode::AbsoluteLongIndexed
+            && (0x80..=0xCF).contains(&(self.raw_operand >> 16))
+            && (self.raw_operand & 0xFFFF) < 0x40 {
+            // This is sometimes used for accessing struct fields relative to a pointer to
+            // another bank, which would be incorrectly canonicalized as a WRAM mirror.
+            label_bank.map(|(bank, _addr)| bank)
+        } else {
+            label_bank.map(|(bank, addr)| canonicalize_bank(addr_with_bank(bank, Addr::from(addr))))
+        };
+
+        canonical_bank
     }
 
     //noinspection IncorrectFormatting

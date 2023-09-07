@@ -7,8 +7,8 @@ use crate::code::Code;
 use crate::config::Config;
 use crate::data::{Data, DataVal};
 use crate::directives::{InstructionPrototype, parse_instruction_prototype};
-use crate::label::{canonicalize_bank, LabelMap};
-use crate::opcode::{AddressingBank, AddrMode, OPCODES};
+use crate::label::LabelMap;
+use crate::opcode::OPCODES;
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
@@ -247,27 +247,6 @@ fn process_code_line(file_state: &mut FileParsingState, address: Addr, opcodes: 
         .filter(|(bank, addr)| !matches!((bank, addr), (0x7E, 0x2000..=0x5FFF)))
         .map(|(bank, _)| bank);
 
-    let code_bank = (address >> 16) as Bank;
-    let label_bank = match opcode.addr_mode.label_bank_source() {
-        AddressingBank::None => None,
-        // TODO: These need to be replaced by better instruction emulation to handle PC-relative, etc.
-        AddressingBank::Data => Some((logged_bank.unwrap_or(code_bank), raw_operand & 0xFFFF)),
-        AddressingBank::Program => Some((code_bank, raw_operand & 0xFFFF)),
-        AddressingBank::Direct => Some((0, raw_operand & 0xFFFF)),
-        AddressingBank::Long => Some(((raw_operand >> 16) as u8, raw_operand & 0xFFFF)),
-        AddressingBank::IndirectLong => unreachable!("IndirectLong should never be a label bank source"),
-    };
-
-    let canonical_bank = if opcode.addr_mode == AddrMode::AbsoluteLongIndexed
-        && (0x80..=0xCF).contains(&(raw_operand >> 16))
-        && (raw_operand & 0xFFFF) < 0x40 {
-        // This is sometimes used for accessing struct fields relative to a pointer to
-        // another bank, which would be incorrectly canonicalized as a WRAM mirror.
-        label_bank.map(|(bank, _addr)| bank)
-    } else {
-        label_bank.map(|(bank, addr)| canonicalize_bank((Addr::from(bank) << 16) + Addr::from(addr)))
-    };
-
     let comment = comment.map(|c| c[1..].to_owned());
 
     if opcode.name == "BRK" && operand_size == 0 {
@@ -279,8 +258,7 @@ fn process_code_line(file_state: &mut FileParsingState, address: Addr, opcodes: 
             raw_operand,
             operand_size,
             comment,
-            // TODO: Make this an Option?
-            db: canonical_bank.unwrap_or(0xFF),
+            logged_bank,
             instruction_prototype: file_state.prefixed_instruction_directive.take(),
         }))
     }

@@ -17,9 +17,11 @@ use regex::Regex;
 use code::Code;
 use data::Data;
 use line::Line;
+use crate::config::{Override, OverrideAddr};
 
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelType};
+use crate::opcode::StaticAddress;
 
 mod code;
 mod opcode;
@@ -149,7 +151,7 @@ impl FileParsingState {
 fn main() {
     let filename_regex = Regex::new(r"Bank \$([0-9A-F]{2})(\.\.\$([0-9A-F]{2})|)").unwrap();
     let mut bank_groups: Vec<(u8, u8)> = Vec::new();
-    let config = config::Config::load("./config/");
+    let mut config = config::Config::load("./config/");
 
     let mut global_state = GlobalParsingState::new();
     let mut lines: BTreeMap<u64, Vec<Line>> = BTreeMap::new();
@@ -231,6 +233,19 @@ fn main() {
                                 Entry::Occupied(e) => {
                                     eprintln!("Duplicate prototype for label {}", e.get().name);
                                 }
+                            }
+                        }
+
+                        // Auto-add overrides to fix labels that referenced bank $A0
+                        if let StaticAddress::DataBank(_low_addr) = c.get_operand() {
+                            if let Some(0xA0) = c.estimate_operand_canonical_bank() {
+                                config.overrides.push(Override {
+                                    addr: OverrideAddr::Address(new_addr),
+                                    db: Some(0xA0),
+                                    type_: None,
+                                    struct_: None,
+                                    opcode: None,
+                                });
                             }
                         }
 

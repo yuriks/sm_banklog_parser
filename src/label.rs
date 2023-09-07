@@ -227,7 +227,8 @@ fn generate_label_for_line_operands(config: &Config, c: &Code) -> Option<Label> 
         StaticAddress::None | StaticAddress::BlockMove { .. } => None,
         StaticAddress::Long(addr) => Some(addr),
         StaticAddress::DataBank(addr) => {
-            Some((Addr::from(override_db.unwrap_or(c.db)) << 16) + Addr::from(addr))
+            let db = c.estimate_operand_canonical_bank().unwrap_or(0xFF);
+            Some((Addr::from(override_db.unwrap_or(db)) << 16) + Addr::from(addr))
         }
         StaticAddress::Immediate(imm) => {
             override_db.map(|label_bank| (Addr::from(label_bank) << 16) + Addr::from(imm))
