@@ -17,8 +17,8 @@ use regex::Regex;
 use code::Code;
 use data::Data;
 use line::Line;
-use crate::config::{Override, OverrideAddr};
 
+use crate::config::{Override, OverrideAddr};
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelType};
 use crate::opcode::StaticAddress;
@@ -40,6 +40,10 @@ pub(crate) fn addr_with_bank(bank: Bank, addr: Addr) -> Addr {
 
 pub(crate) fn split_addr(addr: Addr) -> (Bank, Addr) {
     ((addr >> 16) as Bank, addr & 0xFFFF)
+}
+
+pub(crate) fn split_addr16(addr: Addr) -> (Bank, u16) {
+    ((addr >> 16) as Bank, (addr & 0xFFFF) as u16)
 }
 
 fn is_bulk_data(addr: u32) -> bool {

@@ -1,8 +1,13 @@
 use std::fmt::Write;
 
-use crate::{Addr, addr_with_bank, Bank, config::Config, InstructionPrototype, opcode::{AddrMode, Opcode}, split_addr};
 use crate::label::{canonicalize_bank, LabelMap};
-use crate::opcode::{AddressingBank, StaticAddress};
+use crate::opcode::StaticAddress;
+use crate::{
+    addr_with_bank,
+    config::Config,
+    opcode::{AddrMode, Opcode},
+    split_addr, split_addr16, Addr, Bank, InstructionPrototype,
+};
 
 #[derive(Debug, Clone)]
 pub struct Code {
@@ -122,27 +127,31 @@ impl Code {
 
     pub fn estimate_operand_canonical_bank(&self) -> Option<Bank> {
         let (code_bank, _) = split_addr(self.address);
-        let label_bank = match self.opcode.addr_mode.label_bank_source() {
-            AddressingBank::None => None,
-            // TODO: These need to be replaced by better instruction emulation to handle PC-relative, etc.
-            AddressingBank::Data => Some((self.logged_bank.unwrap_or(code_bank), self.raw_operand & 0xFFFF)),
-            AddressingBank::Program => Some((code_bank, self.raw_operand & 0xFFFF)),
-            AddressingBank::Direct => Some((0, self.raw_operand & 0xFFFF)),
-            AddressingBank::Long => Some(((self.raw_operand >> 16) as u8, self.raw_operand & 0xFFFF)),
-            AddressingBank::IndirectLong => unreachable!("IndirectLong should never be a label bank source"),
-        };
+        let operand = self.get_operand();
+        // TODO: Overrides
+        let (bank, addr) = match operand {
+            StaticAddress::None => None,
+            StaticAddress::Long(addr) => Some(split_addr16(addr)),
+            StaticAddress::DataBank(low_addr) => {
+                Some((self.logged_bank.unwrap_or(code_bank), low_addr))
+            }
+            // TODO: is this right?
+            StaticAddress::Immediate(value) => Some((self.logged_bank.unwrap_or(code_bank), value)),
+            StaticAddress::BlockMove { .. } => None,
+        }?;
 
         let canonical_bank = if self.opcode.addr_mode == AddrMode::AbsoluteLongIndexed
             && (0x80..=0xCF).contains(&(self.raw_operand >> 16))
-            && (self.raw_operand & 0xFFFF) < 0x40 {
+            && (self.raw_operand & 0xFFFF) < 0x40
+        {
             // This is sometimes used for accessing struct fields relative to a pointer to
             // another bank, which would be incorrectly canonicalized as a WRAM mirror.
-            label_bank.map(|(bank, _addr)| bank)
+            bank
         } else {
-            label_bank.map(|(bank, addr)| canonicalize_bank(addr_with_bank(bank, Addr::from(addr))))
+            canonicalize_bank(addr_with_bank(bank, Addr::from(addr)))
         };
 
-        canonical_bank
+        Some(canonical_bank)
     }
 
     //noinspection IncorrectFormatting

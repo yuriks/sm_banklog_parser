@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{Addr, Bank};
 use lazy_static::lazy_static;
+
+use crate::{Addr, Bank};
 
 lazy_static! {
     pub static ref OPCODES: HashMap<u8, Opcode> = maplit::hashmap! {
@@ -309,22 +310,6 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum AddressingBank {
-    /// Instruction does not calculate an effective address. Also used for stack-relative labels.
-    None,
-    /// Uses the Data Bank Register as bank source
-    Data,
-    /// Uses the Program Bank Register as bank source
-    Program,
-    /// Bank is always $00
-    Direct,
-    /// Bank is loaded from memory
-    IndirectLong,
-    /// Operand specifies bank
-    Long,
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AddrMode {
     Implied,
@@ -370,67 +355,6 @@ pub enum StaticAddress {
 }
 
 impl AddrMode {
-    #[allow(clippy::enum_glob_use, clippy::match_same_arms)]
-    pub fn effective_bank_source(self) -> AddressingBank {
-        use AddressingBank::*;
-        match self {
-            AddrMode::Implied => None,
-            AddrMode::Immediate => None,
-            AddrMode::ImmediateByte => None,
-            AddrMode::PcRelative => Program,
-            AddrMode::PcRelativeLong => Program,
-
-            AddrMode::Direct => Direct,
-            AddrMode::DirectIndexedX => Direct,
-            AddrMode::DirectIndexedY => Direct,
-            AddrMode::DirectIndirect => Data,
-            AddrMode::DirectIndexedIndirect => Data,
-            AddrMode::DirectIndirectIndexed => Data,
-            AddrMode::DirectIndirectLong => IndirectLong,
-            AddrMode::DirectIndirectLongIndexed => IndirectLong,
-
-            AddrMode::Absolute => Data,
-            AddrMode::AbsoluteIndexedX => Data,
-            AddrMode::AbsoluteIndexedY => Data,
-            AddrMode::AbsoluteLong => Long,
-            AddrMode::AbsoluteLongIndexed => Long,
-
-            AddrMode::StackRelative => Direct,
-            AddrMode::StackRelativeIndirectIndexed => Data,
-
-            AddrMode::CodeAbsolute => Program,
-            AddrMode::AbsoluteIndirect => Program,
-            AddrMode::AbsoluteIndirectLong => IndirectLong,
-            AddrMode::AbsoluteIndexedIndirect => Program,
-
-            AddrMode::BlockMove => None,
-        }
-    }
-
-    /// Most instructions have the label match the effective address. This is not true for indirect
-    /// instructions, where the label corresponds to the indirect address.
-    #[allow(clippy::enum_glob_use, clippy::match_same_arms)]
-    pub fn label_bank_source(self) -> AddressingBank {
-        use AddressingBank::*;
-        match self {
-            AddrMode::DirectIndirect => Direct,
-            AddrMode::DirectIndexedIndirect => Direct,
-            AddrMode::DirectIndirectIndexed => Direct,
-            AddrMode::DirectIndirectLong => Direct,
-            AddrMode::DirectIndirectLongIndexed => Direct,
-
-            AddrMode::AbsoluteIndirect => Direct,
-            AddrMode::AbsoluteIndirectLong => Direct,
-            // AddrMode::AbsoluteIndexedIndirect does indeed indirect via the Program Bank
-
-            // Stack-relative addressing gets no auto labels
-            AddrMode::StackRelative => None,
-            AddrMode::StackRelativeIndirectIndexed => None,
-
-            _ => self.effective_bank_source(),
-        }
-    }
-
     pub fn static_label_address(
         self,
         instr_addr: Addr,
