@@ -1,8 +1,9 @@
 use std::fmt::{Display, Formatter};
+
 use glob::glob;
 use serde::Deserialize;
-use crate::{Addr, Bank};
 
+use crate::{Addr, Bank};
 use crate::label::LabelType;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Deserialize)]
@@ -63,12 +64,28 @@ impl Display for OverrideAddr {
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Override {
     pub addr: OverrideAddr,
+    /// Label at this address will be used as the label (with an offset if necessary)
+    pub label_addr: Option<Addr>,
+    /// Specifies a bank which will be used to lookup short addresses. Otherwise falls back to a
+    /// logged bank, or the same as a program bank. If set on an immediate, then it'll be assumed
+    /// to be a short pointer to this bank when looking up a label.
     pub db: Option<Bank>,
     #[serde(rename = "type")]
     pub type_: Option<OverrideType>,
     #[serde(rename = "struct")]
     pub struct_: Option<String>,
-    pub opcode: Option<Vec<u64>>,
+}
+
+impl Override {
+    pub fn new(addr: OverrideAddr) -> Self {
+        Self {
+            addr,
+            label_addr: None,
+            db: None,
+            type_: None,
+            struct_: None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,10 +124,10 @@ impl Config {
                 Some(Override {
                     // Address ranges are inclusive
                     addr: OverrideAddr::Range(l.addr, l.addr + (length * 2) - 1),
+                    label_addr: None,
                     db: Some((l.addr >> 16) as Bank),
                     struct_: None,
                     type_: Some(override_type),
-                    opcode: None
                 })
             });
         overrides.extend(generated_overrides);

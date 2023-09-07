@@ -9,11 +9,8 @@ use crate::config::OverrideType;
 use crate::directives::InstructionPrototype;
 use crate::opcode::StaticAddress;
 use crate::{
-    addr_with_bank,
-    config::Config,
-    line::Line,
-    opcode::{AddrMode, Opcode},
-    split_addr, Addr, Bank,
+    addr16_with_bank, addr_with_bank, config::Config, line::Line, opcode::AddrMode, split_addr,
+    Addr, Bank,
 };
 
 pub struct LabelMap(pub(crate) BTreeMap<Addr, Label>);
@@ -36,10 +33,10 @@ impl LabelMap {
         self.0.get(&label_addr)
     }
 
-    pub fn get_label_fuzzy(&self, label_addr: Addr) -> Option<(&Label, i64)> {
-        for offset in [0, -1, 1, -2, 2] {
+    pub fn get_label_fuzzy(&self, label_addr: Addr) -> Option<&Label> {
+        for offset in [0, -1, 1] {
             if let Some(label) = self.0.get(&label_addr.wrapping_add_signed(offset)) {
-                return Some((label, offset));
+                return Some(label);
             }
         }
         None
@@ -51,7 +48,10 @@ impl LabelMap {
 pub enum LabelType {
     #[default]
     Undefined,
+    // Subroutine that returns with RTS
     Subroutine,
+    // Subroutine that returns with RTL
+    SubroutineLong,
     #[serde(skip)]
     Instruction(InstructionPrototype),
     Branch,
@@ -98,20 +98,18 @@ impl Label {
     pub fn is_blocked(&self) -> bool {
         matches!(self.label_type, LabelType::Blocked)
     }
-}
 
-pub fn canonicalize_bank(addr: Addr) -> Bank {
-    match ((addr >> 16) as Bank, addr & 0xFFFF) {
-        // WRAM mirrors
-        ((0x00..=0x3F) | (0x80..=0xBF), 0x0000..=0x1FFF) => 0x7E,
-        // IO mirrors
-        ((0x00..=0x3F) | (0x80..=0xBF), 0x2000..=0x5FFF) => 0x00,
-        (bank, _) => bank,
+    /// Computes the offset that needs to be added to a label to make it match the given operand.
+    pub fn offset_to_operand(&self, operand: StaticAddress) -> Option<i32> {
+        match operand {
+            StaticAddress::None | StaticAddress::BlockMove { .. } => None,
+            StaticAddress::Long(addr) => Some(addr as i32 - self.address as i32),
+            StaticAddress::DataBank(low_addr) | StaticAddress::Immediate(low_addr) => {
+                let addr_in_label_bank = addr16_with_bank(split_addr(self.address).0, low_addr);
+                Some(addr_in_label_bank as i32 - self.address as i32)
+            }
+        }
     }
-}
-
-pub fn canonicalize_addr(addr: Addr) -> Addr {
-    addr_with_bank(canonicalize_bank(addr), addr)
 }
 
 #[rustfmt::skip]
@@ -124,10 +122,10 @@ pub fn generate_labels(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, label
             label.type_.clone().unwrap_or_default()));
     }
 
-    for line in lines.values() {
-        for addr_line in line {
-            let label = match addr_line {
-                Line::Code(c) => generate_label_for_line_operands(config, c),
+    for addr_lines in lines.values() {
+        for line in addr_lines {
+            let label = match line {
+                Line::Code(c) => generate_label_for_line_operand(config, c),
                 Line::Data(data) => {
                     /* Scan through data and insert labels for data pointers (from overrides) */
                     let mut cur_pc = data.address;
@@ -205,197 +203,69 @@ pub fn generate_labels(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, label
     }
 }
 
-fn generate_label_for_line_operands(config: &Config, c: &Code) -> Option<Label> {
-    let mut override_db = None;
+fn generate_label_for_line_operand(config: &Config, c: &Code) -> Option<Label> {
     let override_ = config.get_override(c.address);
-    if let Some(override_) = override_ {
-        override_db = override_.db;
-    }
 
-    let label_addr = c.get_operand();
-    if override_db.is_some()
-        && !matches!(
-            label_addr,
-            StaticAddress::DataBank(_) | StaticAddress::Immediate(_)
-        )
-    {
-        eprintln!(
-            "Instruction at ${:06X} has operand DB override (for {}), but addressing mode doesn't depend on DB.",
-            c.address, override_.unwrap().addr);
-    }
-    let label_addr = match label_addr {
-        StaticAddress::None | StaticAddress::BlockMove { .. } => None,
-        StaticAddress::Long(addr) => Some(addr),
-        StaticAddress::DataBank(addr) => {
-            let db = c.estimate_operand_canonical_bank().unwrap_or(0xFF);
-            Some((Addr::from(override_db.unwrap_or(db)) << 16) + Addr::from(addr))
-        }
-        StaticAddress::Immediate(imm) => {
-            override_db.map(|label_bank| (Addr::from(label_bank) << 16) + Addr::from(imm))
-        }
-    };
-    let label_addr = canonicalize_addr(label_addr?);
+    let label_addr = c.get_operand_label_address(override_)?;
     let (label_bank, label_low_addr) = split_addr(label_addr);
 
-    match c.opcode {
-        Opcode {
-            name: "JSR",
-            addr_mode: AddrMode::CodeAbsolute,
-            ..
-        }
-        | Opcode { name: "JSL", .. } => Some(Label::new(
-            label_addr,
-            format!(
-                "SUB{}_{:06X}",
-                if c.opcode.name == "JSL" { "L" } else { "" },
-                label_addr
-            ),
-            LabelType::Subroutine,
-        )),
+    let region_str = match (label_bank, label_low_addr) {
+        (0x7E, 0x00..=0xFF) => return None, // Don't label DP for now
+        (0x7E, 0x100..=0x1FFF) => "LORAM",
+        (0x7E..=0x7F, _) => "WRAM",
+        (0x00, 0x2000..=0x7FFF) => "HWREG",
+        (0x70..=0x7D, _) => "SRAM",
+        _ => "",
+    };
 
-        Opcode {
-            addr_mode: AddrMode::AbsoluteIndexedIndirect,
-            ..
-        } => {
-            /* Anything using this is using a table of pointers (generally) */
-            let prefix = match (label_bank, label_low_addr) {
-                (0x7E, 0x00..=0xFF) => "", // Don't label DP for now
-                (0x7E, 0x100..=0x1FFF) => "LORAM_PTR",
-                (0x7E | 0x7F, _) => "WRAM_PTR",
-                (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x7FFF) => "HW_PTR",
-                (0x70..=0x7D, _) => "SRAM_PTR",
-                _ => "PTR",
-            };
-            if prefix.is_empty() {
-                None
-            } else {
-                Some(Label::new(
-                    label_addr,
-                    format!("{prefix}_{label_addr:06X}"),
-                    LabelType::PointerTable { length: 0 },
-                ))
-            }
-        }
+    let override_type = override_.and_then(|o| o.type_).map(|ot| match ot {
+        OverrideType::Pointer => LabelType::PointerTable { length: 0 },
+        OverrideType::Data => LabelType::Data,
+        OverrideType::Struct => todo!(),
+        OverrideType::PointerTable => LabelType::PointerTable { length: 0 },
+        OverrideType::DataTable => LabelType::DataTable { length: 0 },
+        OverrideType::Subroutine => LabelType::Subroutine,
+    });
 
-        Opcode {
-            addr_mode:
-                AddrMode::AbsoluteLongIndexed | AddrMode::AbsoluteIndexedX | AddrMode::AbsoluteIndexedY,
-            ..
-        } if label_low_addr >= 0x0100 => {
-            let prefix = match (label_bank, label_low_addr) {
-                (0x7E, 0x00..=0xFF) => "", // Don't label DP for now
-                (0x7E, 0x100..=0x1FFF) => "LORAM_TBL",
-                (0x7E | 0x7F, _) => "WRAM_TBL",
-                (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x7FFF) => "HW_TBL",
-                (0x70..=0x7D, _) => "SRAM_TBL",
-                _ => "TBL",
-            };
-            if prefix.is_empty() {
-                None
-            } else {
-                Some(Label::new(
-                    label_addr,
-                    format!("{prefix}_{label_addr:06X}"),
-                    LabelType::DataTable { length: 0 },
-                ))
-            }
+    let default_label_type = match (c.opcode.name, c.opcode.addr_mode) {
+        // PEA operand detected as immediate will return early from get_operand_label_address above
+        ("PEA", _) | ("JSR", AddrMode::CodeAbsolute) => LabelType::Subroutine,
+        ("JSL", _) => LabelType::SubroutineLong,
+        (_, AddrMode::AbsoluteIndexedIndirect) => LabelType::PointerTable { length: 0 },
+        (
+            _,
+            AddrMode::AbsoluteLongIndexed | AddrMode::AbsoluteIndexedX | AddrMode::AbsoluteIndexedY,
+        ) => LabelType::DataTable { length: 0 },
+        (_, AddrMode::PcRelative) => LabelType::Branch,
+        (_, AddrMode::Absolute | AddrMode::CodeAbsolute | AddrMode::AbsoluteLong) => {
+            LabelType::Data
         }
+        _ => LabelType::Undefined,
+    };
 
-        Opcode {
-            addr_mode: AddrMode::Immediate,
-            ..
-        } => {
-            /* For now, only do this with overrides */
-            if let Some(ov) = override_ {
-                if let Some(
-                    ov_type @ (OverrideType::DataTable
-                    | OverrideType::PointerTable
-                    | OverrideType::Pointer
-                    | OverrideType::Data),
-                ) = ov.type_
-                {
-                    let (name, label_type) = match ov_type {
-                        OverrideType::DataTable => (
-                            format!("TBL_{label_addr:06X}"),
-                            LabelType::DataTable { length: 0 },
-                        ),
-                        OverrideType::PointerTable => (
-                            format!("PTR_{label_addr:06X}"),
-                            LabelType::PointerTable { length: 0 },
-                        ),
-                        OverrideType::Pointer => (
-                            format!("SUB_{label_addr:06X}"),
-                            LabelType::PointerTable { length: 0 },
-                        ),
-                        _ => (format!("DAT_{label_addr:06X}"), LabelType::Data),
-                    };
-                    Some(Label::new(label_addr, name, label_type))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
+    let usage_type = override_type.unwrap_or(default_label_type);
+    let usage_str = match usage_type {
+        LabelType::Undefined => "UNK",
+        LabelType::Subroutine => "SUB",
+        LabelType::SubroutineLong => "SUBL",
+        LabelType::Instruction(_) => "INSTR",
+        LabelType::Branch => "BRA",
+        LabelType::Data => "DAT",
+        LabelType::PointerTable { .. } => "PTR",
+        LabelType::DataTable { .. } => "TBL",
+        LabelType::Blocked => unreachable!(
+            "Tried to create string for Blocked label @ ${:06X}",
+            label_addr
+        ),
+    };
 
-        Opcode {
-            addr_mode: AddrMode::PcRelative,
-            ..
-        } => {
-            /* Branches */
-            Some(Label::new(
-                label_addr,
-                format!("BRA_{label_addr:06X}"),
-                LabelType::Branch,
-            ))
-        }
+    let label_name = if region_str.is_empty() {
+        format!("{usage_str}_{label_addr:06X}")
+    } else if usage_str == "DAT" {
+        format!("{region_str}_{label_addr:06X}")
+    } else {
+        format!("{region_str}_{usage_str}_{label_addr:06X}")
+    };
 
-        Opcode {
-            addr_mode: AddrMode::Absolute | AddrMode::CodeAbsolute | AddrMode::AbsoluteLong,
-            ..
-        } => {
-            let mut offset = 0i64;
-            let prefix = match (label_bank, label_low_addr) {
-                _ if c.opcode.name == "PEA" => {
-                    // TODO: override support
-                    if (label_low_addr & 0x00FF) == 0
-                        || (label_low_addr & 0xFF) == (label_low_addr >> 8)
-                    {
-                        // PEA of the form $db00 or $dbdb are usually used as part of a
-                        // PEA : PLB : PLB sequence to change bank, rather than as a
-                        // code label.
-                        ""
-                    } else {
-                        // Otherwise, it's probably being used to push an address for
-                        // an RTS to return to. RTS increments the popped address, so
-                        // adjust the created label so it's correctly placed.
-                        offset = 1;
-                        "SUB"
-                    }
-                }
-                (0x7E, 0x00..=0xFF) => "", // Don't label DP for now
-                (0x7E, 0x100..=0x1FFF) => "LORAM",
-                (0x7E | 0x7F, _) => "WRAM",
-                (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x7FFF) => "HWREG",
-                (0x70..=0x7D, _) => "SRAM",
-                _ => "DAT",
-            };
-
-            if prefix.is_empty() {
-                None
-            } else {
-                let offset_addr = label_addr.wrapping_add_signed(offset);
-                Some(Label::new(
-                    offset_addr,
-                    format!("{prefix}_{offset_addr:06X}"),
-                    if prefix == "SUB" {
-                        LabelType::Subroutine
-                    } else {
-                        LabelType::Data
-                    },
-                ))
-            }
-        }
-        _ => None,
-    }
+    Some(Label::new(label_addr, label_name, usage_type))
 }

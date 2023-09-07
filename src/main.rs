@@ -38,6 +38,10 @@ pub(crate) fn addr_with_bank(bank: Bank, addr: Addr) -> Addr {
     (Addr::from(bank) << 16) + (addr & 0xFFFF)
 }
 
+pub(crate) fn addr16_with_bank(bank: Bank, addr: u16) -> Addr {
+    (Addr::from(bank) << 16) + Addr::from(addr)
+}
+
 pub(crate) fn split_addr(addr: Addr) -> (Bank, Addr) {
     ((addr >> 16) as Bank, addr & 0xFFFF)
 }
@@ -244,11 +248,8 @@ fn main() {
                         if let StaticAddress::DataBank(_low_addr) = c.get_operand() {
                             if let Some(0xA0) = c.estimate_operand_canonical_bank() {
                                 config.overrides.push(Override {
-                                    addr: OverrideAddr::Address(new_addr),
                                     db: Some(0xA0),
-                                    type_: None,
-                                    struct_: None,
-                                    opcode: None,
+                                    ..Override::new(OverrideAddr::Address(new_addr))
                                 });
                             }
                         }
@@ -267,7 +268,7 @@ fn main() {
             new_lines.push((new_addr, new_addr_lines));
         }
     }
-    lines.extend(new_lines.into_iter());
+    lines.extend(new_lines);
 
     /* Autogenerate labels */
     label::generate_labels(&lines, &config, &mut global_state.labels);
