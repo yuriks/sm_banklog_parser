@@ -246,7 +246,7 @@ fn main() {
 
                         // Auto-add overrides to fix labels that referenced bank $A0
                         if let StaticAddress::DataBank(_low_addr) = c.get_operand() {
-                            if let Some(0xA0) = c.estimate_operand_canonical_bank() {
+                            if let Some(0xA0) = c.get_operand_label_address(None).map(|a| split_addr16(a).0) {
                                 config.overrides.push(Override {
                                     db: Some(0xA0),
                                     ..Override::new(OverrideAddr::Address(new_addr))

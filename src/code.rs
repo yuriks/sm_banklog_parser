@@ -4,7 +4,7 @@ use crate::config::Override;
 use crate::label::LabelMap;
 use crate::opcode::StaticAddress;
 use crate::{
-    addr16_with_bank, addr_with_bank,
+    addr16_with_bank,
     config::Config,
     opcode::{AddrMode, Opcode},
     split_addr, split_addr16, Addr, Bank, InstructionPrototype,
@@ -98,34 +98,6 @@ impl Code {
             1 + u16::from(self.operand_size),
             self.raw_operand,
         )
-    }
-
-    pub fn estimate_operand_canonical_bank(&self) -> Option<Bank> {
-        let (code_bank, _) = split_addr(self.address);
-        let operand = self.get_operand();
-        // TODO: Overrides
-        let (bank, addr) = match operand {
-            StaticAddress::None | StaticAddress::BlockMove { .. } => None,
-            StaticAddress::Long(addr) => Some(split_addr16(addr)),
-            StaticAddress::DataBank(low_addr) => {
-                Some((self.logged_bank.unwrap_or(code_bank), low_addr))
-            }
-            // TODO: is this right?
-            StaticAddress::Immediate(value) => Some((self.logged_bank.unwrap_or(code_bank), value)),
-        }?;
-
-        let canonical_bank = if self.opcode.addr_mode == AddrMode::AbsoluteLongIndexed
-            && (0x80..=0xCF).contains(&(self.raw_operand >> 16))
-            && (self.raw_operand & 0xFFFF) < 0x40
-        {
-            // This is sometimes used for accessing struct fields relative to a pointer to
-            // another bank, which would be incorrectly canonicalized as a WRAM mirror.
-            bank
-        } else {
-            canonicalize_bank(addr_with_bank(bank, Addr::from(addr)))
-        };
-
-        Some(canonical_bank)
     }
 
     pub fn get_operand_label_address(&self, override_: Option<&Override>) -> Option<Addr> {
