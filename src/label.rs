@@ -7,11 +7,7 @@ use serde::Deserialize;
 use crate::code::Code;
 use crate::config::OverrideType;
 use crate::directives::InstructionPrototype;
-use crate::opcode::StaticAddress;
-use crate::{
-    addr16_with_bank, addr_with_bank, config::Config, line::Line, opcode::AddrMode, split_addr,
-    Addr, Bank,
-};
+use crate::{addr_with_bank, config::Config, line::Line, opcode::AddrMode, split_addr, Addr, Bank};
 
 pub struct LabelMap(pub(crate) BTreeMap<Addr, Label>);
 //pub type LabelMap = BTreeMap<u64, Label>;
@@ -97,18 +93,6 @@ impl Label {
 
     pub fn is_blocked(&self) -> bool {
         matches!(self.label_type, LabelType::Blocked)
-    }
-
-    /// Computes the offset that needs to be added to a label to make it match the given operand.
-    pub fn offset_to_operand(&self, operand: StaticAddress) -> Option<i32> {
-        match operand {
-            StaticAddress::None | StaticAddress::BlockMove { .. } => None,
-            StaticAddress::Long(addr) => Some(addr as i32 - self.address as i32),
-            StaticAddress::DataBank(low_addr) | StaticAddress::Immediate(low_addr) => {
-                let addr_in_label_bank = addr16_with_bank(split_addr(self.address).0, low_addr);
-                Some(addr_in_label_bank as i32 - self.address as i32)
-            }
-        }
     }
 }
 

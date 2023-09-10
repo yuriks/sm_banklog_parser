@@ -36,57 +36,64 @@ pub struct Code {
 impl Code {
     fn arg_label(&self, config: &Config, labels: &LabelMap) -> Option<String> {
         let operand_value = self.get_operand();
-        match operand_value {
+        let target = match operand_value {
             StaticAddress::None => return None,
             StaticAddress::BlockMove { src, dst } => {
                 return Some(format!("${src:02X},${dst:02X}"));
             }
-            // TODO: This is kinda ew
-            _ => {}
-        }
+            StaticAddress::Long(addr) => addr,
+
+            StaticAddress::DataBank(low_addr) | StaticAddress::Immediate(low_addr) => {
+                Addr::from(low_addr)
+            }
+        };
 
         let override_ = config.get_override(self.address);
         let label_addr = self.get_operand_label_address(override_);
 
+        let disallow_fuzzy = self.opcode.addr_mode == AddrMode::PcRelative
+            || self.opcode.addr_mode == AddrMode::PcRelativeLong
+            || self.opcode.name == "JSR"
+            || self.opcode.name == "JSL";
+
         let label = label_addr.and_then(|label_addr| {
-            if self.opcode.addr_mode == AddrMode::PcRelative
-                || self.opcode.addr_mode == AddrMode::PcRelativeLong
-                || self.opcode.name == "JSR"
-                || self.opcode.name == "JSL"
-            {
-                labels.get_label(label_addr)
+            let l = if disallow_fuzzy {
+                labels.get_label(label_addr)?
             } else {
-                labels.get_label_fuzzy(label_addr)
+                labels.get_label_fuzzy(label_addr)?
+            };
+
+            if l.is_blocked() {
+                None
+            } else {
+                l.use_from(self.address);
+                Some(l)
             }
         });
 
-        let result = match label {
-            Some(l) if !l.is_blocked() => {
-                l.use_from(self.address);
-
-                let offset = l.offset_to_operand(operand_value).unwrap();
-                let offset = match self.operand_size {
-                    // This removes the multiple of 0x1_0000 when the operand and label are in
-                    // different banks (which are considered equivalent due to canonicalization)
-                    1 | 2 => i32::from(offset as i16),
-                    _ => offset,
-                };
-
-                if offset == 0 {
-                    l.name.to_string()
-                } else if offset.abs() < 10 {
-                    format!("{}{:+}", l.name, offset)
-                } else {
-                    let sign = if offset >= 0 { '+' } else { '-' };
-                    format!("{}{}${:X}", l.name, sign, offset.abs())
-                }
+        let result = if let Some(l) = label {
+            let mut offset = target as i32 - l.address as i32;
+            if self.operand_size <= 2 {
+                // Remove the multiples of 0x1_0000 when the operand and label are in different
+                // banks.
+                offset = i32::from(offset as i16);
             }
-            _ => match self.operand_size {
+
+            if offset == 0 {
+                l.name.to_string()
+            } else if offset.abs() < 10 {
+                format!("{}{:+}", l.name, offset)
+            } else {
+                let sign = if offset >= 0 { '+' } else { '-' };
+                format!("{}{}${:X}", l.name, sign, offset.abs())
+            }
+        } else {
+            match self.operand_size {
                 1 => format!("${:02X}", self.raw_operand),
                 2 => format!("${:04X}", self.raw_operand),
                 3 => format!("${:06X}", self.raw_operand),
                 x => panic!("Invalid argument length: {x}"),
-            },
+            }
         };
 
         Some(result)
