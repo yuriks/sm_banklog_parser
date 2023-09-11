@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use crate::config::Override;
-use crate::label::LabelMap;
+use crate::label::{format_address_expression_str, LabelMap, LabelOrLiteral};
 use crate::opcode::StaticAddress;
 use crate::{
     addr16_with_bank,
@@ -58,45 +58,19 @@ impl Code {
 
         let label = label_addr.and_then(|label_addr| {
             let l = if disallow_fuzzy {
-                labels.get_label(label_addr)?
+                labels.get_label(label_addr)
             } else {
-                labels.get_label_fuzzy(label_addr)?
+                labels.get_label_fuzzy(label_addr)
             };
-
-            if l.is_blocked() {
-                None
-            } else {
-                l.use_from(self.address);
-                Some(l)
-            }
+            l?.attempt_use(self.address)
         });
 
-        let result = if let Some(l) = label {
-            let mut offset = target as i32 - l.address as i32;
-            if self.operand_size <= 2 {
-                // Remove the multiples of 0x1_0000 when the operand and label are in different
-                // banks.
-                offset = i32::from(offset as i16);
-            }
-
-            if offset == 0 {
-                l.name.to_string()
-            } else if offset.abs() < 10 {
-                format!("{}{:+}", l.name, offset)
-            } else {
-                let sign = if offset >= 0 { '+' } else { '-' };
-                format!("{}{}${:X}", l.name, sign, offset.abs())
-            }
-        } else {
-            match self.operand_size {
-                1 => format!("${:02X}", self.raw_operand),
-                2 => format!("${:04X}", self.raw_operand),
-                3 => format!("${:06X}", self.raw_operand),
-                x => panic!("Invalid argument length: {x}"),
-            }
-        };
-
-        Some(result)
+        let base = label.map(LabelOrLiteral::Label);
+        Some(format_address_expression_str(
+            target,
+            base,
+            self.operand_size,
+        ))
     }
 
     pub fn get_operand(&self) -> StaticAddress {

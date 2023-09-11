@@ -50,3 +50,4 @@
 # Sets the reset vectors to pointers
 - addr: [0x80FFE0, 0x80FFFF]
   type: Pointer
+  operand_type: Address

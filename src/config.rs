@@ -32,6 +32,17 @@ pub struct Struct {
     pub fields: Vec<StructField>
 }
 
+impl Struct {
+    pub fn size(&self) -> u64 {
+        let Some(last_field) = self.fields.last() else { return 0; };
+        last_field.offset + last_field.length
+    }
+
+    pub fn field_at_offset(&self, offset: u64) -> Option<&StructField> {
+        self.fields.iter().find(|f| f.offset == offset)
+    }
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Label {
     pub addr: Addr,
@@ -61,17 +72,38 @@ impl Display for OverrideAddr {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Deserialize)]
+pub enum OperandType {
+    Literal,
+    Address,
+}
+
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Override {
     pub addr: OverrideAddr,
+
     /// Label at this address will be used as the label (with an offset if necessary)
     pub label_addr: Option<Addr>,
     /// Specifies a bank which will be used to lookup short addresses. Otherwise falls back to a
     /// logged bank, or the same as a program bank. If set on an immediate, then it'll be assumed
     /// to be a short pointer to this bank when looking up a label.
     pub db: Option<Bank>,
+
+    // TODO: Remove and start using `operand_type` instead
     #[serde(rename = "type")]
     pub type_: Option<OverrideType>,
+
+    /// Determines if the operand value will be emitted as a numeric literal, or as a reference to
+    /// an appropriate label. If `db` or `label_addr` are set, this defaults to [`Address`],
+    /// otherwise:
+    /// - For code locations, immediates default to [`Literal`] and memory references default to
+    ///   [`Address`].
+    /// - For data locations, `dl` defaults to [`Address`], otherwise defaults to [`Literal`].
+    ///
+    /// [`Address`]: OperandType::Address
+    /// [`Literal`]: OperandType::Literal
+    pub operand_type: Option<OperandType>,
+
     #[serde(rename = "struct")]
     pub struct_: Option<String>,
 }
@@ -83,6 +115,7 @@ impl Override {
             label_addr: None,
             db: None,
             type_: None,
+            operand_type: None,
             struct_: None,
         }
     }
@@ -122,12 +155,10 @@ impl Config {
                 };
 
                 Some(Override {
-                    // Address ranges are inclusive
-                    addr: OverrideAddr::Range(l.addr, l.addr + (length * 2) - 1),
-                    label_addr: None,
                     db: Some((l.addr >> 16) as Bank),
-                    struct_: None,
                     type_: Some(override_type),
+                    // Address ranges are inclusive
+                    ..Override::new(OverrideAddr::Range(l.addr, l.addr + (length * 2) - 1))
                 })
             });
         overrides.extend(generated_overrides);

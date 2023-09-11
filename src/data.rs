@@ -1,9 +1,9 @@
 use std::fmt::Write;
 
-use crate::{Addr, addr_with_bank, Bank, SpecialParsingType};
-use crate::config::{Config, OverrideType};
+use crate::config::{Config, OperandType, Override, OverrideType};
 use crate::directives::InstructionPrototype;
-use crate::label::{LabelMap, LabelType};
+use crate::label::{format_address_expression, LabelMap, LabelOrLiteral, LabelType};
+use crate::{addr16_with_bank, split_addr16, Addr, SpecialParsingType};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DataVal {
@@ -31,7 +31,7 @@ impl DataVal {
         match self {
             DataVal::DB(b) => u64::from(b),
             DataVal::DW(w) => u64::from(w),
-            DataVal::DL(l) => u64::from(l)
+            DataVal::DL(l) => u64::from(l),
         }
     }
 
@@ -50,14 +50,6 @@ impl DataVal {
             DataVal::DL(_) => "dl",
         }
     }
-
-    pub fn to_hex_literal(self) -> String {
-        match self {
-            DataVal::DB(db) => format!("${db:02X}"),
-            DataVal::DW(dw) => format!("${dw:04X}"),
-            DataVal::DL(dl) => format!("${dl:06X}"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +61,7 @@ pub struct Data {
 }
 
 impl Data {
+    #[rustfmt::skip]
     pub fn generate_spritemap(&self) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
         let mut it = self.data.iter();
@@ -147,6 +140,7 @@ impl Data {
         Ok(result)
     }
 
+    #[rustfmt::skip]
     pub fn generate_raw_spritemap(&self) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
         let mut it = self.data.iter();
@@ -179,6 +173,7 @@ impl Data {
         Ok(result)
     }
 
+    #[rustfmt::skip]
     fn generate_instruction_list(&self, labels: &LabelMap) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
 
@@ -205,6 +200,7 @@ impl Data {
         Ok(result)
     }
 
+    #[rustfmt::skip]
     pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
         let mut cur_pc = self.address;
         let mut output_lines = Vec::new();
@@ -284,43 +280,72 @@ impl Data {
         output
     }
 
-    fn emit_data_atom(&self, config: &Config, labels: &LabelMap, cur_pc: Addr, output: &mut String, d: DataVal) {
-        if let DataVal::DL(dl) = d {
-            if let Some(label) = labels.get(&Addr::from(dl)) {
-                output.push_str(&label.name);
-                return;
-            }
-        }
+    fn emit_data_atom(
+        &self,
+        config: &Config,
+        labels: &LabelMap,
+        cur_pc: Addr,
+        output: &mut String,
+        d: DataVal,
+    ) {
+        let override_ = config.get_override(cur_pc);
+        let (type_, label_addr) =
+            get_data_label_address(config, self.address, cur_pc, d, override_);
 
-        if let Some(ov) = config.get_override(cur_pc) {
-            match ov.type_ {
-                Some(OverrideType::Pointer | OverrideType::Data) => {
-                    let db = ov.db.map_or(cur_pc >> 16, Addr::from);
-                    let label_addr = (d.as_u64() & 0xFFFF_u64) | (db << 16);
-                    if let Some(label) = labels.get(&label_addr) {
-                        output.push_str(&label.name);
-                        return;
-                    }
-                },
-                Some(OverrideType::Struct) => {
-                    if let Some(st) = config.structs.iter().find(|s| &s.name == ov.struct_.as_ref().unwrap_or(&String::new())) {
-                        let last_field = &st.fields[st.fields.len() - 1];
-                        let st_len = last_field.offset + last_field.length;
-                        let cur_offset = cur_pc - self.address;
-                        let cur_st_offset = cur_offset % st_len;
-                        let field = &st.fields.iter().find(|f| f.offset == cur_st_offset).unwrap();
-                        let db = field.db.unwrap_or((cur_pc >> 16) as Bank);
-                        let label_addr = if field.length < 3 { addr_with_bank(db, d.as_u64()) } else { d.as_u64() };
-                        if field.type_ == OverrideType::Pointer && (label_addr & 0xFFFF_u64) >= 0x8000 && labels.contains_key(&label_addr) {
-                            output.push_str(&labels[&label_addr].name);
-                            return;
-                        }
-                    }
-                }
-                _ => {},
-            }
-        }
+        let base = match type_ {
+            OperandType::Literal => Some(LabelOrLiteral::Literal(label_addr)),
+            OperandType::Address => Some(label_addr)
+                .and_then(|addr| labels.get_label(addr)?.attempt_use(self.address))
+                .map(LabelOrLiteral::Label),
+        };
 
-        output.push_str(&d.to_hex_literal());
+        let target = d.as_u64();
+        format_address_expression(output, target, base, d.length() as u8).unwrap();
     }
+}
+
+pub fn get_data_label_address(
+    config: &Config,
+    base_address: Addr,
+    cur_pc: Addr,
+    d: DataVal,
+    override_: Option<&Override>,
+) -> (OperandType, Addr) {
+    let mut ov_db = override_.and_then(|o| o.db);
+    let mut ov_type = override_.and_then(|o| o.operand_type);
+    let ov_label_addr = override_.and_then(|o| o.label_addr);
+    let ov_struct = override_.and_then(|o| o.struct_.as_ref());
+
+    // TODO: This should be a part of the label type config, which then creates the overrides for each field
+    if let Some(st) =
+        ov_struct.and_then(|ov_struct| config.structs.iter().find(|s| s.name == *ov_struct))
+    {
+        let cur_offset = cur_pc - base_address;
+        let cur_st_offset = cur_offset % st.size();
+        let field = st.field_at_offset(cur_st_offset).unwrap();
+        if field.type_ == OverrideType::Pointer {
+            ov_db = ov_db.or(field.db);
+            ov_type = ov_type.or(Some(OperandType::Address));
+        }
+    }
+
+    let type_ = ov_type.unwrap_or_else(|| {
+        if ov_db.is_some() || ov_label_addr.is_some() || matches!(d, DataVal::DL(_)) {
+            OperandType::Address
+        } else {
+            OperandType::Literal
+        }
+    });
+
+    let (pc_bank, _) = split_addr16(cur_pc);
+    let label_addr = ov_label_addr.unwrap_or_else(|| {
+        let default_bank = ov_db.unwrap_or(pc_bank);
+        match d {
+            DataVal::DL(val) => Addr::from(val),
+            DataVal::DW(val) => addr16_with_bank(default_bank, val),
+            DataVal::DB(val) => addr16_with_bank(default_bank, u16::from(val)),
+        }
+    });
+
+    (type_, label_addr)
 }
