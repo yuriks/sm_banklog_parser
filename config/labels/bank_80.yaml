@@ -12,5 +12,25 @@
 - { addr: 0x808077, name: .hangForever }
 - { addr: 0x808079, name: .gotResponse }
 
+- { addr: [0x809616, 0x809631], type: PointerTable }
 
 - { addr: 0x80998B, name: GfxAutoReserve }
+
+- { addr: [0x8099A3, 0x8099AE], type: DataTable }
+- { addr: [0x809DFB, 0x809E08], type: PointerTable }
+- { addr: [0x80AE08, 0x80AE0F], type: PointerTable }
+- { addr: [0x80AE76, 0x80AE7D], type: PointerTable }
+
+# Savestation data
+- { addr: [0x80C4B5, 0x80C4C4], type: PointerTable }
+- { addr: [0x80C4C5, 0x80C5CE], type: StructTable, struct: SaveStationData }
+- { addr: [0x80C5CF, 0x80C6D8], type: StructTable, struct: SaveStationData }
+- { addr: [0x80C6D9, 0x80C81A], type: StructTable, struct: SaveStationData }
+- { addr: [0x80C81B, 0x80C916], type: StructTable, struct: SaveStationData }
+- { addr: [0x80C917, 0x80CA2E], type: StructTable, struct: SaveStationData }
+- { addr: [0x80CA2F, 0x80CB2A], type: StructTable, struct: SaveStationData }
+- { addr: [0x80CB2B, 0x80CC18], type: StructTable, struct: SaveStationData }
+- { addr: [0x80CC19, 0x80CD06], type: StructTable, struct: SaveStationData }
+
+# Elevator bits
+- { addr: [0x80CD46, 0x80CD51], type: PointerTable }

@@ -1,14 +1,46 @@
-# labels
-#
+### Bank $81
+# map rooms
+- { addr: [0x8182D6, 0x8182E3], type: PointerTable }
 
-# These are fixes to insert labels off-by one from access in code
-# that will be used by the label retargeting that offsets accesses by up to 2 bytes.
-# They are needed because otherwise labels would fall in the middle of data.
 
+### Bank $83
+# FX data
+- { addr: [0x838000, 0x83810F], type: StructTable, struct: FX }
+- { addr: [0x838112, 0x838141], type: StructTable, struct: FX }
+- { addr: [0x838144, 0x838153], type: StructTable, struct: FX }
+- { addr: [0x838156, 0x838165], type: StructTable, struct: FX }
+- { addr: [0x83816A, 0x838179], type: StructTable, struct: FX }
+- { addr: [0x83817C, 0x83818B], type: StructTable, struct: FX }
+- { addr: [0x83818E, 0x8381BD], type: StructTable, struct: FX }
+
+
+### Bank $84
+# PLM things
+- { addr: [0x84C70A, 0x84C719], type: PointerTable }
+- { addr: [0x84EED3, 0x84EFD2], type: PointerTable }
+
+
+### Bank $8B
 - addr: 0x8BE45F
   name: TBL_8BE45F
   type: DataTable
 
+
+### Bank $90
+- addr: 0x908324
+  name: AnimDelayPtrs
+  type: PointerTable
+  length: 16
+
+
+### Bank $91
+- { addr: [0x918014, 0x91804B], type: PointerTable }
+
+
+### Bank $A2
+# These are fixes to insert labels off-by one from access in code
+# that will be used by the label retargeting that offsets accesses by up to 2 bytes.
+# They are needed because otherwise labels would fall in the middle of data.
 - addr: 0xA28187
   name: EnemySpeedLin
   type: DataTable
@@ -25,13 +57,16 @@
   name: EnemySpeedQuadHi
   type: DataTable
 
+
+### Bank $A7
 - addr: 0xA7902F
   name: TBL_A7902F
   type: DataTable
 
+
+### Bank $B8
 # Blocked labels that can't be used by the label assigner since this data
 # doesn't exist in the rom.
-
 - addr: 0xB88000
   name: BLK_B88000
   type: Blocked
@@ -43,11 +78,3 @@
 - addr: 0xB88008
   name: BLK_B88008
   type: Blocked
-
-# Test stuff
-
-- addr: 0x908324
-  name: AnimDelayPtrs
-  type: PointerTable
-  length: 16
-

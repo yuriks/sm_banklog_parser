@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::config::{Config, OperandType, Override, OverrideType};
+use crate::config::{Config, OperandType, Override};
 use crate::directives::InstructionPrototype;
 use crate::label::{format_address_expression, LabelMap, LabelOrLiteral, LabelType};
 use crate::{addr16_with_bank, split_addr16, Addr, SpecialParsingType};
@@ -184,7 +184,7 @@ impl Data {
             let instruction = instruction.get_dw().ok_or("Instruction must be a dw")?;
 
             let target = (self.address & !0xFFFF) + Addr::from(instruction);
-            let label = labels.get_label(target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
+            let label = labels.get_label_exact(target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
             let prototype = match &label.label_type {
                 LabelType::Subroutine => &default_prototype,
                 LabelType::Instruction(p) => p,
@@ -230,7 +230,7 @@ impl Data {
                     if !first_cmd {
                         if let Some(lbl) = labels.0.get_mut(&cur_pc) {
                             /* There's a label for this address, add it into the data */
-                            write!(&mut output, " : {}: ", lbl.name).unwrap();
+                            write!(&mut output, " : {}: ", lbl.name()).unwrap();
                             lbl.assigned.set(true);
                             first_cmd = true;
                             first_val = true;
@@ -289,45 +289,31 @@ impl Data {
         d: DataVal,
     ) {
         let override_ = config.get_override(cur_pc);
-        let (type_, label_addr) =
-            get_data_label_address(config, self.address, cur_pc, d, override_);
+        let (type_, label_addr) = get_data_label_address(cur_pc, d, override_);
+        let target = d.as_u64();
 
         let base = match type_ {
             OperandType::Literal => Some(LabelOrLiteral::Literal(label_addr)),
-            OperandType::Address => Some(label_addr)
-                .and_then(|addr| labels.get_label(addr)?.attempt_use(self.address))
-                .map(LabelOrLiteral::Label),
+            OperandType::Address if target == 0 => Some(LabelOrLiteral::Literal(label_addr)),
+            OperandType::Address | OperandType::NonNullAddress => (|| {
+                Some(LabelOrLiteral::Label(
+                    labels.get_label(label_addr)?.attempt_use(self.address)?,
+                ))
+            })(),
         };
 
-        let target = d.as_u64();
         format_address_expression(output, target, base, d.length() as u8).unwrap();
     }
 }
 
 pub fn get_data_label_address(
-    config: &Config,
-    base_address: Addr,
     cur_pc: Addr,
     d: DataVal,
     override_: Option<&Override>,
 ) -> (OperandType, Addr) {
-    let mut ov_db = override_.and_then(|o| o.db);
-    let mut ov_type = override_.and_then(|o| o.operand_type);
+    let ov_db = override_.and_then(|o| o.db);
+    let ov_type = override_.and_then(|o| o.operand_type);
     let ov_label_addr = override_.and_then(|o| o.label_addr);
-    let ov_struct = override_.and_then(|o| o.struct_.as_ref());
-
-    // TODO: This should be a part of the label type config, which then creates the overrides for each field
-    if let Some(st) =
-        ov_struct.and_then(|ov_struct| config.structs.iter().find(|s| s.name == *ov_struct))
-    {
-        let cur_offset = cur_pc - base_address;
-        let cur_st_offset = cur_offset % st.size();
-        let field = st.field_at_offset(cur_st_offset).unwrap();
-        if field.type_ == OverrideType::Pointer {
-            ov_db = ov_db.or(field.db);
-            ov_type = ov_type.or(Some(OperandType::Address));
-        }
-    }
 
     let type_ = ov_type.unwrap_or_else(|| {
         if ov_db.is_some() || ov_label_addr.is_some() || matches!(d, DataVal::DL(_)) {
