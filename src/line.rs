@@ -2,29 +2,28 @@ use byteorder::{ByteOrder, LittleEndian};
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::{Addr, Bank, FileParsingState, SpecialParsingType};
 use crate::code::Code;
 use crate::config::Config;
 use crate::data::{Data, DataVal};
-use crate::directives::{InstructionPrototype, parse_instruction_prototype};
+use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
+use crate::{Addr, Bank, FileParsingState, SpecialParsingType};
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
     static ref CODE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*((?: ?[0-9A-F]{2})+)\s*([A-Z]{3})\s*([#\$A-F0-9sxy,()\[\]]*?)\s*(\[\$(?:([0-9A-F]{2}):)?([0-9A-F]{4})\])?\s*(;.*)*$").unwrap();
     static ref BLOCKMOVE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*(MVN|MVP) [0-9A-F]{2} [0-9A-F]{2}\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
     static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
-    static ref DATA_START_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})(/\$[0-9A-F]{4}|)\s*(|db|dw|dl|dx|dW)\s*((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
-    static ref DATA_CONT_REGEX: Regex = Regex::new(r"^\s+((([A-F0-9]*),\s*)*([A-F0-9]*))(\s*$|\s*;)(.*)$").unwrap();
+    static ref DATA_START_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})(?:/\$[0-9A-F]{4})?\s*(db|dw|dl|dx|dW)\s*((?:[A-F0-9]*,\s*)*[A-F0-9]*)\s*(?:;(.*))?$").unwrap();
+    static ref DATA_CONT_REGEX: Regex = Regex::new(r"^\s+((?:[A-F0-9]*,\s*)*[A-F0-9]*)\s*(?:;(.*))?$").unwrap();
     static ref SUB_REGEX: Regex = Regex::new(r"^;;; \$(?P<addr>[[:xdigit:]]+):\s*(?P<desc>.*?)\s*(?:;;;)?\s*$").unwrap();
     static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
     static ref BRACKETS_REGEX: Regex = Regex::new(r"^\s*([{}])\s*(;.*)?$").unwrap();
 }
 
 #[derive(Debug, Clone)]
-pub enum Line
-{
+pub enum Line {
     // Also used for raw text in other unhandled lines
     Comment(String),
     Data(Data),
@@ -49,16 +48,28 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 
     match cmd {
         "spritemap" => {
-            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::Spritemap).unwrap();
+            file_state
+                .get_modifiers_mut()
+                .set_data_type(SpecialParsingType::Spritemap)
+                .unwrap();
         }
         "spritemap_raw" => {
-            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapRaw).unwrap();
+            file_state
+                .get_modifiers_mut()
+                .set_data_type(SpecialParsingType::SpritemapRaw)
+                .unwrap();
         }
         "spritemap_extended" => {
-            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::SpritemapExtended).unwrap();
+            file_state
+                .get_modifiers_mut()
+                .set_data_type(SpecialParsingType::SpritemapExtended)
+                .unwrap();
         }
         "instruction_list" => {
-            file_state.get_modifiers_mut().set_data_type(SpecialParsingType::InstructionList).unwrap();
+            file_state
+                .get_modifiers_mut()
+                .set_data_type(SpecialParsingType::InstructionList)
+                .unwrap();
         }
         "instruction" => {
             if file_state.prefixed_instruction_directive.is_some() {
@@ -76,6 +87,7 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 }
 
 impl Line {
+    #[rustfmt::skip]
     pub fn parse(line: &str, _config: &Config, file_state: &mut FileParsingState) -> (Option<Addr>, Line) {
         let special_type = file_state.get_modifiers().data_type;
 
@@ -125,7 +137,7 @@ impl Line {
 
             process_code_line(file_state, address, &opcodes, logged_addr, comment.map(|c| c.as_str()), special_type)
         } else if let Some(cap) = DATA_START_REGEX.captures(line) {
-            let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[3], &cap[4], cap.get(9));
+            let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[2], &cap[3], cap.get(4));
             let address: Addr = Addr::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
             let data: Vec<u64> = raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
 
@@ -173,7 +185,7 @@ impl Line {
 
             (Some(address), Line::Data(Data { address, data, comment, special_type }))
         } else if let Some(cap) = DATA_CONT_REGEX.captures(line) {
-            let (raw_data, raw_comment) = (&cap[1], cap.get(6));
+            let (raw_data, raw_comment) = (&cap[1], cap.get(2));
 
             let comment = match raw_comment {
                 Some(c) if c.as_str().len() > 1 => Some(c.as_str().trim().to_owned()),
@@ -229,7 +241,14 @@ impl Line {
     }
 }
 
-fn process_code_line(file_state: &mut FileParsingState, address: Addr, opcodes: &[u8], logged_addr: Option<(Bank, Addr)>, comment: Option<&str>, special_type: Option<SpecialParsingType>) -> (Option<Addr>, Line) {
+fn process_code_line(
+    file_state: &mut FileParsingState,
+    address: Addr,
+    opcodes: &[u8],
+    logged_addr: Option<(Bank, Addr)>,
+    comment: Option<&str>,
+    special_type: Option<SpecialParsingType>,
+) -> (Option<Addr>, Line) {
     let opcode = &OPCODES[&opcodes[0]];
     let operand_size = (opcodes.len() - 1) as u8;
     let raw_operand: u32 = match operand_size {
@@ -237,7 +256,7 @@ fn process_code_line(file_state: &mut FileParsingState, address: Addr, opcodes: 
         1 => u32::from(opcodes[1]),
         2 => u32::from(LittleEndian::read_u16(&opcodes[1..=2])),
         3 => LittleEndian::read_u24(&opcodes[1..=3]),
-        _ => panic!("Invalid operand size")
+        _ => panic!("Invalid operand size"),
     };
 
     // The bank logs have various incorrect logged runtime addresses where 7E is reported as
@@ -250,9 +269,15 @@ fn process_code_line(file_state: &mut FileParsingState, address: Addr, opcodes: 
     let comment = comment.map(|c| c[1..].to_owned());
 
     if opcode.name == "BRK" && operand_size == 0 {
-        (Some(address), Line::Data(Data { address, data: vec![DataVal::DB(0)], comment, special_type }))
+        let data = Data {
+            address,
+            data: vec![DataVal::DB(0)],
+            comment,
+            special_type,
+        };
+        (Some(address), Line::Data(data))
     } else {
-        (Some(address), Line::Code(Code {
+        let code = Code {
             address,
             opcode,
             raw_operand,
@@ -260,6 +285,7 @@ fn process_code_line(file_state: &mut FileParsingState, address: Addr, opcodes: 
             comment,
             logged_bank,
             instruction_prototype: file_state.prefixed_instruction_directive.take(),
-        }))
+        };
+        (Some(address), Line::Code(code))
     }
 }
