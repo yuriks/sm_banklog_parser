@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
+use std::io::BufReader;
 
 use anyhow::{Context, Result};
 use glob::glob;
@@ -191,7 +192,7 @@ impl Config {
             filenames
                 .map(|path| {
                     let path = path?;
-                    let file = File::open(&path)?;
+                    let file = BufReader::new(File::open(&path)?);
                     let contents: Vec<T> = serde_yaml::from_reader(file)
                         .with_context(|| format!("Failed deserializing {:?}", &path))?;
                     Ok(contents)
