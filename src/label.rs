@@ -13,12 +13,18 @@ use crate::{config, config::Config, line::Line, opcode::AddrMode, split_addr, sp
 
 pub struct LabelMap {
     labels: BTreeMap<Addr, Label>,
+
+    /// Maps Label start address => end address.
+    ///
+    /// NOTE: Unlike in `OverrideAddr`, the end address is exclusive.
+    regions: BTreeMap<Addr, Addr>,
 }
 
 impl LabelMap {
     pub fn new() -> Self {
         LabelMap {
             labels: BTreeMap::new(),
+            regions: BTreeMap::new(),
         }
     }
 
@@ -31,16 +37,20 @@ impl LabelMap {
     }
 
     pub fn get_label_containing(&self, addr: Addr) -> Option<&Label> {
-        // This might potentially scan a large number of items for each label. It might be worth
-        // storing labels (as points) and regions in separate maps to simplify this lookup.
-
-        // Scan backwards in map trying to find a label containing the address.
-        self.labels
-            .range(..=addr)
-            .map(|(_k, v)| v)
-            // Finds the preceding sized label
-            .rfind(|l| l.length > 0)
-            .filter(|l| l.contains(addr))
+        // Get the last region starting before `addr` and therefore (since regions cannot overlap)
+        // the one which would have to be containing it. There's a `BTreeMap::upper_bound` API in
+        // Rust nightly, but in the meantime the same can be achieved with `range`.
+        let preceding_region = self.regions.range(..=addr).last();
+        let (&region_start, &region_end) = preceding_region?;
+        if addr >= region_start && addr < region_end {
+            // The region should always have a corresponding label, so unwrapping here is ok to
+            // assert the invariant.
+            let l = self.get_label_exact(region_start).unwrap();
+            assert!(l.contains(addr));
+            Some(l)
+        } else {
+            None
+        }
     }
 
     pub fn get_label(&self, label_addr: Addr) -> Option<&Label> {
@@ -67,7 +77,14 @@ impl LabelMap {
 
     fn insert_label_mut(&mut self, new_label: Label) -> Result<&mut Label, (Label, &mut Label)> {
         match self.labels.entry(new_label.address) {
-            Entry::Vacant(e) => Ok(e.insert(new_label)),
+            Entry::Vacant(e) => {
+                let l = e.insert(new_label);
+                if l.length > 0 {
+                    let existing_region = self.regions.insert(l.address, l.address + l.length);
+                    assert!(existing_region.is_none());
+                }
+                Ok(l)
+            }
             Entry::Occupied(e) => Err((new_label, e.into_mut())),
         }
     }
