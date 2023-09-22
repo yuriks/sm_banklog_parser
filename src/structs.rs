@@ -3,7 +3,7 @@ use crate::label::{LabelMap, LabelType};
 
 pub fn generate_overrides(config: &mut Config, labels: &LabelMap) {
     let mut new_overrides = Vec::new();
-    for label in labels.values() {
+    for label in labels.iter_labels() {
         let (name, is_table) = match &label.label_type {
             LabelType::Struct { struct_ } => (struct_, false),
             LabelType::StructTable { struct_ } => (struct_, true),

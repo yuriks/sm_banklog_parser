@@ -228,7 +228,7 @@ impl Data {
                     let data_len = d.length();
 
                     if !first_cmd {
-                        if let Some(lbl) = labels.0.get_mut(&cur_pc) {
+                        if let Some(lbl) = labels.get_label_exact(cur_pc) {
                             /* There's a label for this address, add it into the data */
                             write!(&mut output, " : {}: ", lbl.name()).unwrap();
                             lbl.assigned.set(true);
