@@ -6,7 +6,7 @@ use std::fmt;
 use serde::Deserialize;
 
 use crate::code::Code;
-use crate::config::{OperandType, OverrideAddr};
+use crate::config::{OperandType, Override, OverrideAddr};
 use crate::data::{get_data_label_address, Data};
 use crate::directives::InstructionPrototype;
 use crate::{config, config::Config, line::Line, opcode::AddrMode, split_addr, split_addr16, Addr};
@@ -266,6 +266,32 @@ pub fn generate_labels(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, label
             }
         }
     }
+}
+
+/// Generate overrides from pointer labels with a length defined
+pub fn generate_overrides(config: &mut Config, labels: &LabelMap) {
+    let generated_overrides = labels.iter_labels().filter_map(|l| {
+        let override_addr = if l.length == 0 {
+            return None;
+        } else {
+            OverrideAddr::Range(l.address, l.address + l.length - 1)
+        };
+
+        let override_type = match &l.label_type {
+            LabelType::Data | LabelType::DataTable => OperandType::Literal,
+            LabelType::Pointer | LabelType::PointerTable => OperandType::Address,
+            // Struct auto-overrides are handled in structs::generate_overrides
+            _ => return None,
+        };
+
+        Some(Override {
+            db: Some(split_addr16(l.address).0),
+            operand_type: Some(override_type),
+            // Address ranges are inclusive
+            ..Override::new(override_addr)
+        })
+    });
+    config.add_overrides(generated_overrides);
 }
 
 fn generate_label_for_line_operand(config: &Config, labels: &mut LabelMap, c: &Code) {

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::BufReader;
@@ -64,7 +65,7 @@ impl OverrideAddr {
         }
     }
 
-    fn overlaps(&self, o: &Self) -> bool {
+    fn overlaps(&self, o: &OverrideAddr) -> bool {
         let (start1, end1) = self.as_range();
         let (start2, end2) = o.as_range();
 
@@ -72,15 +73,17 @@ impl OverrideAddr {
     }
 
     pub fn first(self) -> Addr {
-        match self {
-            OverrideAddr::Address(x) | OverrideAddr::Range(x, _) => x,
-        }
+        self.as_range().0
     }
 
-    fn length(self) -> u64 {
+    fn last(self) -> Addr {
+        self.as_range().1
+    }
+
+    pub fn contains(self, addr: Addr) -> bool {
         match self {
-            OverrideAddr::Address(_) => 0,
-            OverrideAddr::Range(a, b) => b - a + 1,
+            OverrideAddr::Address(x) => addr == x,
+            OverrideAddr::Range(a, b) => addr >= a && addr <= b,
         }
     }
 }
@@ -181,7 +184,7 @@ impl Debug for Override {
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub labels: Vec<Label>,
-    overrides: Vec<Override>,
+    overrides: BTreeMap<Addr, Override>,
     pub structs: Vec<Struct>,
 }
 
@@ -202,32 +205,12 @@ impl Config {
         }
 
         let labels: Vec<Label> = read_config_entries(&format!("{path}/labels/*.yaml"))?;
-        let mut overrides: Vec<Override> =
-            read_config_entries(&format!("{path}/overrides/*.yaml"))?;
+        let overrides = BTreeMap::from_iter(
+            read_config_entries::<Override>(&format!("{path}/overrides/*.yaml"))?
+                .into_iter()
+                .map(|o| (o.addr.first(), o)),
+        );
         let structs: Vec<Struct> = read_config_entries(&format!("{path}/structs/*.yaml"))?;
-
-        /* Generate overrides from pointer labels with a length defined */
-        // TODO: This is probably nicer if done after config generation together with the struct override generation
-        let generated_overrides = labels.iter().filter_map(|l| {
-            let override_type = match &l.type_ {
-                Some(LabelType::Data | LabelType::DataTable) if l.addr.length() > 0 => {
-                    OperandType::Literal
-                }
-                Some(LabelType::Pointer | LabelType::PointerTable) if l.addr.length() > 0 => {
-                    OperandType::Address
-                }
-                // Struct auto-overrides are handled in structs::generate_overrides
-                _ => return None,
-            };
-
-            Some(Override {
-                db: Some((l.addr.first() >> 16) as Bank),
-                operand_type: Some(override_type),
-                // Address ranges are inclusive
-                ..Override::new(l.addr)
-            })
-        });
-        overrides.extend(generated_overrides);
 
         Ok(Config {
             labels,
@@ -237,23 +220,35 @@ impl Config {
     }
 
     pub fn get_override(&self, addr: Addr) -> Option<&Override> {
-        self.overrides.iter().find(|o| match &o.addr {
-            OverrideAddr::Address(a) if *a == addr => true,
-            OverrideAddr::Range(a, b) if addr >= *a && addr <= *b => true,
-            _ => false,
-        })
+        let (_, ov) = self.overrides.range(..=addr).last()?;
+        if ov.addr.contains(addr) {
+            Some(ov)
+        } else {
+            None
+        }
     }
 
     pub fn add_overrides(&mut self, override_iter: impl IntoIterator<Item = Override>) {
-        // TODO: Love me some O(n^2) (use a BTreeMap)
         'outer: for override_ in override_iter {
-            for o in &self.overrides {
-                if override_.addr.overlaps(&o.addr) {
-                    eprintln!("Overlapping overrides: {override_:?} and {o:?}");
+            // Check for an overlapping override by checking insertion neighbors
+            let preceding_ov = self
+                .overrides
+                .range(..=override_.addr.first())
+                .last()
+                .map(|(_, v)| v);
+            let following_ov = self
+                .overrides
+                .range(override_.addr.last()..)
+                .next()
+                .map(|(_, v)| v);
+            for neighbor in itertools::chain(preceding_ov, following_ov) {
+                if override_.addr.overlaps(&neighbor.addr) {
+                    eprintln!("Overlapping overrides: {override_:?} and {neighbor:?}");
                     continue 'outer;
                 }
             }
-            self.overrides.push(override_);
+
+            self.overrides.insert(override_.addr.first(), override_);
         }
     }
 

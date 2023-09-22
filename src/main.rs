@@ -287,6 +287,7 @@ fn main() {
 
     /* Autogenerate labels */
     label::load_labels(&config, &mut global_state.labels);
+    label::generate_overrides(&mut config, &global_state.labels);
     structs::generate_overrides(&mut config, &global_state.labels);
     label::generate_labels(&lines, &config, &mut global_state.labels);
 
