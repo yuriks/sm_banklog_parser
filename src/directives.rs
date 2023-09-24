@@ -1,11 +1,6 @@
-use nom::{Finish, IResult};
-use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::character::complete::space0;
-use nom::combinator::value;
-use nom::error::{convert_error, VerboseError};
-use nom::multi::separated_list0;
-use nom::sequence::delimited;
+use winnow::ascii::space0;
+use winnow::combinator::{alt, delimited, separated0};
+use winnow::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum InstructionParameter {
@@ -22,23 +17,26 @@ pub struct InstructionPrototype {
 }
 
 pub fn parse_instruction_prototype(s: &str) -> Result<Vec<InstructionParameter>, String> {
-    let (_, params) = parse_instruction_prototype_inner(s).finish().map_err(|e| convert_error(s, e))?;
+    let params = parse_instruction_prototype_inner
+        .parse(s)
+        .map_err(|e| e.to_string())?;
     Ok(params)
 }
 
-fn parse_instruction_prototype_inner(i: &str) -> IResult<&str, Vec<InstructionParameter>, VerboseError<&str>> {
+fn parse_instruction_prototype_inner(i: &mut &str) -> PResult<Vec<InstructionParameter>> {
     delimited(
-        delimited(space0, tag("("), space0),
-        separated_list0(
-            delimited(space0, tag(","), space0),
+        delimited(space0, '(', space0),
+        separated0(
             alt((
-                value(InstructionParameter::Byte, tag("byte")),
-                value(InstructionParameter::Word, tag("word")),
-                value(InstructionParameter::Addr, tag("addr")),
-                value(InstructionParameter::LongAddr, tag("long_addr")),
-                value(InstructionParameter::VramAddr, tag("vram_addr")),
-            ))
+                "byte".value(InstructionParameter::Byte),
+                "word".value(InstructionParameter::Word),
+                "addr".value(InstructionParameter::Addr),
+                "long_addr".value(InstructionParameter::LongAddr),
+                "vram_addr".value(InstructionParameter::VramAddr),
+            )),
+            delimited(space0, ',', space0),
         ),
-        delimited(space0, tag(")"), space0),
-    )(i)
+        delimited(space0, ')', space0),
+    )
+    .parse_next(i)
 }
