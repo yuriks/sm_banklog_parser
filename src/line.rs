@@ -1,6 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use lazy_static::lazy_static;
 use regex::Regex;
+use winnow::Parser;
 
 use crate::code::Code;
 use crate::config::Config;
@@ -8,15 +9,14 @@ use crate::data::{Data, DataVal};
 use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
-use crate::{Addr, Bank, FileParsingState, SpecialParsingType};
+use crate::parse::ParsedDataLine;
+use crate::{parse, Addr, Bank, FileParsingState, SpecialParsingType};
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
     static ref CODE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*((?: ?[0-9A-F]{2})+)\s*([A-Z]{3})\s*([#\$A-F0-9sxy,()\[\]]*?)\s*(\[\$(?:([0-9A-F]{2}):)?([0-9A-F]{4})\])?\s*(;.*)*$").unwrap();
     static ref BLOCKMOVE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*(MVN|MVP) [0-9A-F]{2} [0-9A-F]{2}\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
     static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
-    static ref DATA_START_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})(?:/\$[0-9A-F]{4})?\s*(db|dw|dl|dx|dW)\s*((?:[A-F0-9]*,\s*)*[A-F0-9]*)\s*(?:;(.*))?$").unwrap();
-    static ref DATA_CONT_REGEX: Regex = Regex::new(r"^\s+((?:[A-F0-9]*,\s*)*[A-F0-9]*)\s*(?:;(.*))?$").unwrap();
     static ref SUB_REGEX: Regex = Regex::new(r"^;;; \$(?P<addr>[[:xdigit:]]+):\s*(?P<desc>.*?)\s*(?:;;;)?\s*$").unwrap();
     static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
     static ref BRACKETS_REGEX: Regex = Regex::new(r"^\s*([{}])\s*(;.*)?$").unwrap();
@@ -136,44 +136,16 @@ impl Line {
             };
 
             process_code_line(file_state, address, &opcodes, logged_addr, comment.map(|c| c.as_str()), special_type)
-        } else if let Some(cap) = DATA_START_REGEX.captures(line) {
-            let (raw_addr, data_type, raw_data, raw_comment) = (&cap[1], &cap[2], &cap[3], cap.get(4));
-            let address: Addr = Addr::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
-            let data: Vec<u64> = raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
-
-            let comment = match raw_comment {
-                Some(c) if c.as_str().len() > 1 => Some(c.as_str().trim().to_owned()),
+        } else if let Some(parsed) = parse::parse_data_line.parse(line).ok() {
+            let ParsedDataLine {
+                line_addr: address, data_type, data_values: data, comment
+            } = parsed;
+            let comment = match comment {
+                Some(c) if c.len() > 1 => Some(c.trim().to_owned()),
                 _ => None
             };
 
-            {
-                file_state.last_data_cmd = data_type.to_string();
-            }
-
-            let data_type = "dx";
-
-            let data = match data_type.to_lowercase().as_str() {
-                "db" => data.iter().map(|d| DataVal::DB(*d as u8)).collect(),
-                "dw" => data.iter().map(|d| DataVal::DW(*d as u16)).collect(),
-                "dl" => data.iter().map(|d| DataVal::DL(*d as u32)).collect(),
-                "dx" => {
-                    let mut dx_data: Vec<DataVal> = Vec::new();
-                    for d in raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()) {
-                        match d.len() {
-                            2 => dx_data.push(DataVal::DB(u8::from_str_radix(d, 16).unwrap())),
-                            4 => dx_data.push(DataVal::DW(u16::from_str_radix(d, 16).unwrap())),
-                            6 => dx_data.push(DataVal::DL(u32::from_str_radix(d, 16).unwrap())),
-                            8 => {
-                                dx_data.push(DataVal::DW(u16::from_str_radix(&d[0..2], 16).unwrap()));
-                                dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()));
-                            },
-                            _ => panic!("Invalid dx value length: {line:?}")
-                        }
-                    }
-                    dx_data
-                },
-                _ => panic!("Unknown data type")
-            };
+            file_state.last_data_cmd = data_type.to_string();
 
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
 
@@ -184,59 +156,31 @@ impl Line {
             file_state.last_pc = lpc;
 
             (Some(address), Line::Data(Data { address, data, comment, special_type }))
-        } else if let Some(cap) = DATA_CONT_REGEX.captures(line) {
-            let (raw_data, raw_comment) = (&cap[1], cap.get(2));
-
-            let comment = match raw_comment {
-                Some(c) if c.as_str().len() > 1 => Some(c.as_str().trim().to_owned()),
+        } else if let Some(parsed) = parse::parse_data_line_continuation.parse(line).ok() {
+            let ParsedDataLine {
+                line_addr: _,
+                data_type: _,
+                data_values: data,
+                comment,
+            } = parsed;
+            let comment = match comment {
+                Some(c) if c.len() > 1 => Some(c.trim().to_owned()),
                 _ => None
             };
 
-            if raw_data.trim().len() > 1 {
-                let data: Vec<u64> = raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| u64::from_str_radix(d, 16).unwrap()).collect();
-                let (_data_type, address) = {
-                    (file_state.last_data_cmd.clone(), file_state.last_pc)
-                };
+            let address = file_state.last_pc;
 
-                let data_type = "dx";
+            let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
 
-                let data = match data_type.to_lowercase().as_str() {
-                    "db" => data.iter().map(|d| DataVal::DB(*d as u8)).collect(),
-                    "dw" => data.iter().map(|d| DataVal::DW(*d as u16)).collect(),
-                    "dl" => data.iter().map(|d| DataVal::DL(*d as u32)).collect(),
-                    "dx" => {
-                        let mut dx_data: Vec<DataVal> = Vec::new();
-                        for d in raw_data.split(',').map(str::trim).filter(|d| !d.is_empty()) {
-                            match d.len() {
-                                2 => dx_data.push(DataVal::DB(u8::from_str_radix(d, 16).unwrap())),
-                                4 => dx_data.push(DataVal::DW(u16::from_str_radix(d, 16).unwrap())),
-                                6 => dx_data.push(DataVal::DL(u32::from_str_radix(d, 16).unwrap())),
-                                8 => {
-                                    dx_data.push(DataVal::DW(u16::from_str_radix(&d[0..2], 16).unwrap()));
-                                    dx_data.push(DataVal::DW(u16::from_str_radix(&d[2..4], 16).unwrap()));
-                                },
-                                _ => panic!("Invalid dx value length")
-                            }
-                        }
-                        dx_data
-                    },
-                    _ => panic!("Unknown data type")
-                };
-
-                let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
-
-                let mut lpc = address + addr_offset;
-                if (lpc & 0xFFFF) < 0x8000 {
-                    lpc |= 0x8000;
-                }
-                file_state.last_pc = lpc;
-
-                (Some(address), Line::Data(Data { address, data, comment, special_type }))
-            } else {
-                (None, Line::Comment(raw_data.trim().to_string()))
+            let mut lpc = address + addr_offset;
+            if (lpc & 0xFFFF) < 0x8000 {
+                lpc |= 0x8000;
             }
+            file_state.last_pc = lpc;
+
+            (Some(address), Line::Data(Data { address, data, comment, special_type }))
         } else {
-            (None, Line::Comment(line.to_string()))
+            (None, Line::Comment(line.trim().to_string()))
         }
     }
 }

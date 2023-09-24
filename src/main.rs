@@ -34,6 +34,7 @@ mod directives;
 mod label;
 mod line;
 mod opcode;
+mod parse;
 mod structs;
 
 pub type Addr = u64;

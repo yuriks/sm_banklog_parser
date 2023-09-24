@@ -5,7 +5,7 @@ use crate::directives::InstructionPrototype;
 use crate::label::{format_address_expression, LabelMap, LabelOrLiteral, LabelType};
 use crate::{addr16_with_bank, split_addr16, Addr, SpecialParsingType};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum DataVal {
     DB(u8),
     DW(u16),
