@@ -9,13 +9,11 @@ use crate::data::{Data, DataVal};
 use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
-use crate::parse::ParsedDataLine;
+use crate::parse::{ParsedCodeLine, ParsedDataLine};
 use crate::{parse, Addr, Bank, FileParsingState, SpecialParsingType};
 
 /* Compile these into static variables once at runtime for performance reasons */
 lazy_static! {
-    static ref CODE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*((?: ?[0-9A-F]{2})+)\s*([A-Z]{3})\s*([#\$A-F0-9sxy,()\[\]]*?)\s*(\[\$(?:([0-9A-F]{2}):)?([0-9A-F]{4})\])?\s*(;.*)*$").unwrap();
-    static ref BLOCKMOVE_REGEX: Regex = Regex::new(r"^\$([0-9A-F]{2}:[0-9A-F]{4})\s*(([0-9A-F]{2} ?)+)\s*(MVN|MVP) [0-9A-F]{2} [0-9A-F]{2}\s*((\[\$([0-9A-F]{4}|[0-9A-F]{2}:[0-9A-F]{4})\])*)\s*(;.*)*$").unwrap();
     static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
     static ref SUB_REGEX: Regex = Regex::new(r"^;;; \$(?P<addr>[[:xdigit:]]+):\s*(?P<desc>.*?)\s*(?:;;;)?\s*$").unwrap();
     static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
@@ -115,28 +113,29 @@ impl Line {
             let target = Addr::from_str_radix(raw_target, 16).unwrap();
             let pad_byte = u8::from_str_radix(raw_pad_byte, 16).unwrap();
             (None, Line::Comment(format!("padbyte ${pad_byte:02X} : pad ${target:06X}")))
-        } else if let Some(cap) = BLOCKMOVE_REGEX.captures(line) {
-            let (raw_addr, raw_opcode, comment) = (&cap[1], &cap[2], cap.get(9));
-            let address: Addr = Addr::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
-            let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
+        } else if let Ok(parsed) = parse::parse_code_line.parse(line) {
+            let ParsedCodeLine {
+                line_addr,
+                instruction_bytes,
+                mnemonic: _,
+                logged_address,
+                comment,
+            } = parsed;
 
-            process_code_line(file_state, address, &opcodes, None, comment.map(|c| c.as_str()), None)
-        } else if let Some(cap) = CODE_REGEX.captures(line) {
-            let (raw_addr, raw_opcode, _op_name, _op_arg, op_logged_db, op_logged_addr, comment) = (&cap[1], &cap[2], &cap[3], &cap[4], cap.get(6), cap.get(7), cap.get(8));
-            let address: Addr = Addr::from_str_radix(&raw_addr.replace(':', ""), 16).unwrap();
-            let opcodes: Vec<u8> = raw_opcode.trim().split(' ').map(|o| u8::from_str_radix(o, 16).unwrap()).collect();
-
-            let logged_addr = match (op_logged_db, op_logged_addr) {
-                (Some(op_logged_db), Some(op_logged_addr)) => {
-                    Some((
-                        Bank::from_str_radix(op_logged_db.as_str(), 16).unwrap(),
-                        Addr::from_str_radix(op_logged_addr.as_str(), 16).unwrap()))
-                },
+            let logged_address = match logged_address {
+                Some((Some(db), addr)) => Some((db, addr)),
                 _ => None,
             };
 
-            process_code_line(file_state, address, &opcodes, logged_addr, comment.map(|c| c.as_str()), special_type)
-        } else if let Some(parsed) = parse::parse_data_line.parse(line).ok() {
+            process_code_line(
+                file_state,
+                line_addr,
+                &instruction_bytes,
+                logged_address,
+                comment,
+                special_type,
+            )
+        } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
             let ParsedDataLine {
                 line_addr: address, data_type, data_values: data, comment
             } = parsed;
@@ -156,7 +155,7 @@ impl Line {
             file_state.last_pc = lpc;
 
             (Some(address), Line::Data(Data { address, data, comment, special_type }))
-        } else if let Some(parsed) = parse::parse_data_line_continuation.parse(line).ok() {
+        } else if let Ok(parsed) = parse::parse_data_line_continuation.parse(line) {
             let ParsedDataLine {
                 line_addr: _,
                 data_type: _,
@@ -189,7 +188,7 @@ fn process_code_line(
     file_state: &mut FileParsingState,
     address: Addr,
     opcodes: &[u8],
-    logged_addr: Option<(Bank, Addr)>,
+    logged_addr: Option<(Bank, u16)>,
     comment: Option<&str>,
     special_type: Option<SpecialParsingType>,
 ) -> (Option<Addr>, Line) {
@@ -210,7 +209,7 @@ fn process_code_line(
         .filter(|(bank, addr)| !matches!((bank, addr), (0x7E, 0x2000..=0x5FFF)))
         .map(|(bank, _)| bank);
 
-    let comment = comment.map(|c| c[1..].to_owned());
+    let comment = comment.map(|c| c.to_owned());
 
     if opcode.name == "BRK" && operand_size == 0 {
         let data = Data {
