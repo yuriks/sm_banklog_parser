@@ -1,6 +1,4 @@
 use byteorder::{ByteOrder, LittleEndian};
-use lazy_static::lazy_static;
-use regex::Regex;
 use winnow::Parser;
 
 use crate::code::Code;
@@ -9,16 +7,8 @@ use crate::data::{Data, DataVal};
 use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
-use crate::parse::{ParsedCodeLine, ParsedDataLine};
+use crate::parse::{parse_sub_comment, ParsedCodeLine, ParsedDataLine, ParsedFillToLine};
 use crate::{parse, Addr, Bank, FileParsingState, SpecialParsingType};
-
-/* Compile these into static variables once at runtime for performance reasons */
-lazy_static! {
-    static ref COMMENT_REGEX: Regex = Regex::new(r"^\s*(;.*)$").unwrap();
-    static ref SUB_REGEX: Regex = Regex::new(r"^;;; \$(?P<addr>[[:xdigit:]]+):\s*(?P<desc>.*?)\s*(?:;;;)?\s*$").unwrap();
-    static ref FILL_REGEX: Regex = Regex::new(r"^(.*?)fillto \$([A-F0-9]*)\s*,\s*\$([A-F0-9]*)\s*.*$").unwrap();
-    static ref BRACKETS_REGEX: Regex = Regex::new(r"^\s*([{}])\s*(;.*)?$").unwrap();
-}
 
 #[derive(Debug, Clone)]
 pub enum Line {
@@ -85,34 +75,43 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 }
 
 impl Line {
-    #[rustfmt::skip]
-    pub fn parse(line: &str, _config: &Config, file_state: &mut FileParsingState) -> (Option<Addr>, Line) {
+    pub fn parse(
+        line: &str,
+        _config: &Config,
+        file_state: &mut FileParsingState,
+    ) -> (Option<Addr>, Line) {
         let special_type = file_state.get_modifiers().data_type;
 
-        if let Some(cap) = SUB_REGEX.captures(line) {
-            let addr = u16::from_str_radix(&cap["addr"], 16).unwrap(); // TODO: Error handling
-            // let _desc = &cap["desc"];
-            let full_addr = file_state.addr_in_current_bank(addr);
-            (Some(full_addr), Line::Comment(line.into()))
-        } else if let Some(cap) = COMMENT_REGEX.captures(line) {
-            if let Some(rest) = line.strip_prefix(";@!") {
+        if let Ok(parsed) = parse::parse_comment_line.parse(line) {
+            let mut addr = None;
+
+            if let Some(rest) = parsed.strip_prefix(";@!") {
                 if let Err(s) = process_directive(rest, file_state) {
                     eprintln!("{s}");
                 }
+            } else if let Ok(parsed) = parse_sub_comment.parse(parsed) {
+                let (low_addr, _description) = parsed;
+                addr = Some(file_state.addr_in_current_bank(low_addr));
             }
-            (None, Line::Comment(cap[1].into()))
-        } else if let Some(cap) = BRACKETS_REGEX.captures(line) {
-            match &cap[1] {
-                "{" => file_state.push_context(),
-                "}" => file_state.pop_context().unwrap(), // TODO: Error handling
+            (addr, Line::Comment(parsed.to_owned()))
+        } else if let Ok((bracket, _)) = parse::parse_bracket_line.parse(line) {
+            match bracket {
+                '{' => file_state.push_context(),
+                '}' => file_state.pop_context().unwrap(), // TODO: Error handling
                 _ => unreachable!(),
             }
-            (None, Line::Comment(line.into()))
-        } else if let Some(cap) = FILL_REGEX.captures(line) {
-            let (raw_target, raw_pad_byte) = (&cap[2], &cap[3]);
-            let target = Addr::from_str_radix(raw_target, 16).unwrap();
-            let pad_byte = u8::from_str_radix(raw_pad_byte, 16).unwrap();
-            (None, Line::Comment(format!("padbyte ${pad_byte:02X} : pad ${target:06X}")))
+            (None, Line::Comment(line.to_owned()))
+        } else if let Ok(parsed) = parse::parse_fillto_line.parse(line) {
+            let ParsedFillToLine {
+                line_addr,
+                target,
+                fill_byte,
+                // TODO: Comment is being ignored
+                comment: _,
+            } = parsed;
+
+            let line = Line::Comment(format!("padbyte ${fill_byte:02X} : pad ${target:06X}"));
+            (Some(line_addr), line)
         } else if let Ok(parsed) = parse::parse_code_line.parse(line) {
             let ParsedCodeLine {
                 line_addr,
@@ -137,11 +136,14 @@ impl Line {
             )
         } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
             let ParsedDataLine {
-                line_addr: address, data_type, data_values: data, comment
+                line_addr: address,
+                data_type,
+                data_values: data,
+                comment,
             } = parsed;
             let comment = match comment {
                 Some(c) if c.len() > 1 => Some(c.trim().to_owned()),
-                _ => None
+                _ => None,
             };
 
             file_state.last_data_cmd = data_type.to_string();
@@ -154,7 +156,13 @@ impl Line {
             }
             file_state.last_pc = lpc;
 
-            (Some(address), Line::Data(Data { address, data, comment, special_type }))
+            let line = Line::Data(Data {
+                address,
+                data,
+                comment,
+                special_type,
+            });
+            (Some(address), line)
         } else if let Ok(parsed) = parse::parse_data_line_continuation.parse(line) {
             let ParsedDataLine {
                 line_addr: _,
@@ -164,7 +172,7 @@ impl Line {
             } = parsed;
             let comment = match comment {
                 Some(c) if c.len() > 1 => Some(c.trim().to_owned()),
-                _ => None
+                _ => None,
             };
 
             let address = file_state.last_pc;
@@ -177,7 +185,13 @@ impl Line {
             }
             file_state.last_pc = lpc;
 
-            (Some(address), Line::Data(Data { address, data, comment, special_type }))
+            let line = Line::Data(Data {
+                address,
+                data,
+                comment,
+                special_type,
+            });
+            (Some(address), line)
         } else {
             (None, Line::Comment(line.trim().to_string()))
         }

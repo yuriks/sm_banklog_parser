@@ -2,11 +2,11 @@ use crate::data::DataVal;
 use crate::{addr16_with_bank, Addr, Bank};
 use winnow::ascii::{hex_uint, space0, space1};
 use winnow::combinator::{
-    alt, cut_err, delimited, iterator, opt, preceded, separated1, separated_pair, terminated,
+    alt, cut_err, delimited, eof, iterator, opt, preceded, separated1, separated_pair, terminated,
 };
 use winnow::error::{ErrMode, ErrorKind, ParserError};
 use winnow::prelude::*;
-use winnow::stream::{AsChar, SliceLen, Stream};
+use winnow::stream::{AsChar, ContainsToken, SliceLen, Stream};
 use winnow::token::{take_till0, take_while};
 use winnow::trace::trace;
 
@@ -34,6 +34,10 @@ fn hex2(i: &mut &str) -> PResult<u8> {
 
 fn hex4(i: &mut &str) -> PResult<u16> {
     of_length(4, hex_uint).parse_next(i)
+}
+
+fn hex6(i: &mut &str) -> PResult<u32> {
+    of_length(6, hex_uint).parse_next(i)
 }
 
 fn line_comment<'i>(i: &mut &'i str) -> PResult<&'i str> {
@@ -181,6 +185,85 @@ fn instruction_logged_address(i: &mut &str) -> PResult<(Option<Bank>, u16)> {
     delimited('[', pc_address, ']').parse_next(i)
 }
 
+pub fn parse_comment_line<'i>(i: &mut &'i str) -> PResult<&'i str> {
+    // recognize() so that leading ';' is returned as part of the comment
+    preceded(space0, line_comment.recognize()).parse_next(i)
+}
+
+pub fn parse_bracket_line<'i>(i: &mut &'i str) -> PResult<(char, Option<&'i str>)> {
+    let bracket = preceded(space0, alt(('{', '}'))).parse_next(i)?;
+    let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
+    Ok((bracket, comment))
+}
+
+pub struct ParsedFillToLine<'i> {
+    pub line_addr: Addr,
+    pub target: Addr,
+    pub fill_byte: u8,
+    pub comment: Option<&'i str>,
+}
+
+pub fn parse_fillto_line<'i>(i: &mut &'i str) -> PResult<ParsedFillToLine<'i>> {
+    let line_addr = pc_prefix.parse_next(i)?;
+    delimited(space1, "fillto", space1).parse_next(i)?;
+    let (target, fill_byte) = separated_pair(
+        preceded('$', hex6),
+        delimited(space0, ',', space0),
+        preceded('$', hex2),
+    )
+    .parse_next(i)?;
+    let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
+
+    Ok(ParsedFillToLine {
+        line_addr,
+        target: Addr::from(target),
+        fill_byte,
+        comment,
+    })
+}
+
+fn lazy_quantifier<
+    I: Stream,
+    O,
+    E: ParserError<I>,
+    P: ContainsToken<I::Token>,
+    F: Parser<I, O, E>,
+>(
+    predicate: P,
+    mut terminator: F,
+) -> impl Parser<I, (I::Slice, O), E> {
+    move |i: &mut I| {
+        let match_start = i.checkpoint();
+        loop {
+            let potential_match_end = i.checkpoint();
+            let match_length = i.offset_from(&match_start);
+            match terminator.parse_next(i) {
+                Ok(o) => {
+                    let final_pos = i.checkpoint();
+                    i.reset(match_start);
+                    let matched = i.next_slice(match_length);
+                    i.reset(final_pos);
+                    return Ok((matched, o));
+                }
+                Err(ErrMode::Backtrack(_)) => i.reset(potential_match_end),
+                Err(e) => return Err(e),
+            }
+
+            let c = i.next_token();
+            if !c.is_some_and(|c| predicate.contains_token(c)) {
+                return Err(ErrMode::from_error_kind(i, ErrorKind::Slice));
+            }
+        }
+    }
+}
+
+pub fn parse_sub_comment<'i>(i: &mut &'i str) -> PResult<(u16, &'i str)> {
+    let addr = delimited((";;;", space1, '$'), hex4, (':', space0)).parse_next(i)?;
+    let (description, ()) =
+        lazy_quantifier(|_| true, (opt((space0, ";;;")), space0, eof).void()).parse_next(i)?;
+    Ok((addr, description))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +383,22 @@ mod tests {
         assert_eq!(res.mnemonic, "CMP");
         assert_eq!(res.logged_address, Some((Some(0x7E), 0x2140)));
         assert_eq!(res.comment, Some("|"));
+    }
+
+    #[test]
+    fn test_lazy_quantifier() {
+        fn fancy_comment<'i>(i: &mut &'i str) -> PResult<(&'i str, &'i str)> {
+            preceded(
+                ";;; ",
+                lazy_quantifier(|_| true, (space0, ";;;", space0, eof).recognize()),
+            )
+            .parse_next(i)
+        }
+
+        let res = fancy_comment.parse(";;; test text ;;;");
+        assert_eq!(res, Ok(("test text", " ;;;")));
+
+        let res = fancy_comment.parse(";;; test ;;; with more semicolon ;;;  ");
+        assert_eq!(res, Ok(("test ;;; with more semicolon", " ;;;  ")));
     }
 }
