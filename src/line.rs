@@ -75,10 +75,7 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 }
 
 impl Line {
-    pub fn parse(
-        line: &str,
-        file_state: &mut FileParsingState,
-    ) -> (Option<Addr>, Line) {
+    pub fn parse(line: &str, file_state: &mut FileParsingState) -> (Option<Addr>, Line) {
         let special_type = file_state.get_modifiers().data_type;
 
         if let Ok(parsed) = parse::parse_comment_line.parse(line) {

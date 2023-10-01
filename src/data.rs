@@ -61,18 +61,29 @@ pub struct Data {
 }
 
 impl Data {
-    #[rustfmt::skip]
     pub fn generate_spritemap(&self) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
         let mut it = self.data.iter();
 
-        let count = it.next().and_then(|d| d.get_dw()).ok_or("expected dw count")?;
+        let count = it
+            .next()
+            .and_then(|d| d.get_dw())
+            .ok_or("expected dw count")?;
         result.push(format!("dw ${count:04X}"));
 
         for _ in 0..count {
-            let val1 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 1")?;
-            let val2 = it.next().and_then(|d| d.get_db()).ok_or("expected db value 2")?;
-            let val3 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 3")?;
+            let val1 = it
+                .next()
+                .and_then(|d| d.get_dw())
+                .ok_or("expected dw value 1")?;
+            let val2 = it
+                .next()
+                .and_then(|d| d.get_db())
+                .ok_or("expected db value 2")?;
+            let val3 = it
+                .next()
+                .and_then(|d| d.get_dw())
+                .ok_or("expected dw value 3")?;
 
             // Use same-line operator to group with count if spritemap only has 1 entry
             if count == 1 {
@@ -93,16 +104,20 @@ impl Data {
             let val_xflip = (val3 >> 14) & 1;
             let val_yflip = (val3 >> 15) & 1;
 
-            write!(l, "%spritemap_entry({val_x:3}, {val_y:3}, ${val_tile:03X}, ").unwrap();
+            write!(
+                l,
+                "%spritemap_entry({val_x:3}, {val_y:3}, ${val_tile:03X}, "
+            )
+            .unwrap();
 
             let mut wrote_flag = false;
             macro_rules! add_and {
                 () => {
                     if wrote_flag {
-                       l.push_str("|");
+                        l.push_str("|");
                     }
                     wrote_flag = true;
-                }
+                };
             }
 
             if val_pal != 0 {
@@ -140,18 +155,29 @@ impl Data {
         Ok(result)
     }
 
-    #[rustfmt::skip]
     pub fn generate_raw_spritemap(&self) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
         let mut it = self.data.iter();
 
-        let count = it.next().and_then(|d| d.get_dw()).ok_or("expected dw count")?;
+        let count = it
+            .next()
+            .and_then(|d| d.get_dw())
+            .ok_or("expected dw count")?;
         result.push(format!("dw ${count:04X}"));
 
         for i in 0..count {
-            let val1 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 1")?;
-            let val2 = it.next().and_then(|d| d.get_db()).ok_or("expected db value 2")?;
-            let val3 = it.next().and_then(|d| d.get_dw()).ok_or("expected dw value 3")?;
+            let val1 = it
+                .next()
+                .and_then(|d| d.get_dw())
+                .ok_or("expected dw value 1")?;
+            let val2 = it
+                .next()
+                .and_then(|d| d.get_db())
+                .ok_or("expected db value 2")?;
+            let val3 = it
+                .next()
+                .and_then(|d| d.get_dw())
+                .ok_or("expected dw value 3")?;
 
             // Write 4 entries per line
             let new_line = (count > 2) && (i % 2 == 0);
@@ -173,7 +199,6 @@ impl Data {
         Ok(result)
     }
 
-    #[rustfmt::skip]
     fn generate_instruction_list(&self, labels: &LabelMap) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
 
@@ -184,11 +209,17 @@ impl Data {
             let instruction = instruction.get_dw().ok_or("Instruction must be a dw")?;
 
             let target = (self.address & !0xFFFF) + Addr::from(instruction);
-            let label = labels.get_label_exact(target).ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
+            let label = labels
+                .get_label_exact(target)
+                .ok_or_else(|| format!("Undefined instruction ${target:06X}"))?;
             let prototype = match &label.label_type {
                 LabelType::Subroutine => &default_prototype,
                 LabelType::Instruction(p) => p,
-                _ => return Err(format!("Instruction label ${target:06X} isn't subroutine or instruction")),
+                _ => {
+                    return Err(format!(
+                        "Instruction label ${target:06X} isn't subroutine or instruction"
+                    ))
+                }
             };
 
             for _param in &prototype.params {
@@ -200,7 +231,6 @@ impl Data {
         Ok(result)
     }
 
-    #[rustfmt::skip]
     pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
         let mut cur_pc = self.address;
         let mut output_lines = Vec::new();
@@ -208,14 +238,24 @@ impl Data {
         match self.special_type {
             Some(SpecialParsingType::Spritemap) => {
                 output_lines = self.generate_spritemap().expect("invalid spritemap data");
-            },
+            }
             Some(SpecialParsingType::SpritemapRaw) => {
-                output_lines = self.generate_raw_spritemap().expect("invalid spritemap data");
+                output_lines = self
+                    .generate_raw_spritemap()
+                    .expect("invalid spritemap data");
             }
             Some(SpecialParsingType::InstructionList) => {
-                output_lines = self.generate_instruction_list(labels).expect("invalid instruction list data");
-                output_lines.push(Data { special_type: None, ..self.clone() }.to_string(config, labels));
-            },
+                output_lines = self
+                    .generate_instruction_list(labels)
+                    .expect("invalid instruction list data");
+                output_lines.push(
+                    Data {
+                        special_type: None,
+                        ..self.clone()
+                    }
+                    .to_string(config, labels),
+                );
+            }
             Some(_) => unimplemented!(),
             None => {
                 let mut output = String::new();
