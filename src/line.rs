@@ -19,7 +19,7 @@ pub enum Line {
 }
 
 impl Line {
-    pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
+    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
         match self {
             Line::Comment(s) => s.to_string(),
             Line::Data(d) => d.to_string(config, labels),
@@ -77,7 +77,6 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 impl Line {
     pub fn parse(
         line: &str,
-        _config: &Config,
         file_state: &mut FileParsingState,
     ) -> (Option<Addr>, Line) {
         let special_type = file_state.get_modifiers().data_type;

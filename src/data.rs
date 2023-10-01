@@ -201,7 +201,7 @@ impl Data {
     }
 
     #[rustfmt::skip]
-    pub fn to_string(&self, config: &Config, labels: &mut LabelMap) -> String {
+    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
         let mut cur_pc = self.address;
         let mut output_lines = Vec::new();
 

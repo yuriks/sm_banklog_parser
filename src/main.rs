@@ -22,7 +22,7 @@ use code::Code;
 use data::Data;
 use line::Line;
 
-use crate::config::{Override, OverrideAddr};
+use crate::config::{Config, Override, OverrideAddr};
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelName, LabelType};
 use crate::opcode::StaticAddress;
@@ -102,18 +102,6 @@ impl ParsingModifiers {
     }
 }
 
-struct GlobalParsingState {
-    pub labels: LabelMap,
-}
-
-impl GlobalParsingState {
-    fn new() -> Self {
-        GlobalParsingState {
-            labels: LabelMap::new(),
-        }
-    }
-}
-
 pub struct FileParsingState {
     modifier_stack: Vec<ParsingModifiers>,
     prefixed_instruction_directive: Option<InstructionPrototype>,
@@ -162,43 +150,32 @@ impl FileParsingState {
     }
 }
 
-fn main() {
-    let filename_regex = Regex::new(r"Bank \$([0-9A-F]{2})(\.\.\$([0-9A-F]{2})|)").unwrap();
-    let mut bank_groups: Vec<(u8, u8)> = Vec::new();
-    let mut config = config::Config::load("./config/").expect("Failed to read config");
-
-    let mut global_state = GlobalParsingState::new();
-    let mut lines: BTreeMap<u64, Vec<Line>> = BTreeMap::new();
-
-    println!("Parsing...");
-
+fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
     let filenames = glob("./logs/*.asm").unwrap();
+    let filename_regex = Regex::new(r"Bank \$([0-9A-F]{2})(?:\.\.\$([0-9A-F]{2}))?").unwrap();
     for filename in filenames.flatten() {
         let cap = filename_regex.captures(filename.to_str().unwrap()).unwrap();
+        let bank_start = u8::from_str_radix(&cap[1], 16).unwrap();
+        let bank_end = cap
+            .get(2)
+            .map(|s| u8::from_str_radix(s.as_str(), 16).unwrap())
+            .unwrap_or(bank_start);
 
-        let bank_group = (
-            u8::from_str_radix(&cap[1], 16).unwrap(),
-            if let Some(c) = cap.get(3) {
-                if c.as_str().trim().is_empty() {
-                    u8::from_str_radix(&cap[1], 16).unwrap()
-                } else {
-                    u8::from_str_radix(c.as_str(), 16).unwrap()
-                }
-            } else {
-                u8::from_str_radix(&cap[1], 16).unwrap()
-            },
-        );
-
-        bank_groups.push(bank_group);
-
-        let file = BufReader::new(File::open(filename).unwrap());
-        let mut file_state = FileParsingState::new((u64::from(bank_group.0) << 16) + 0x8000);
+        let file = BufReader::new(File::open(&filename).unwrap());
+        let mut file_state = FileParsingState::new(addr16_with_bank(bank_start, 0x8000));
 
         /* Parse the full file into data */
         for line in file.lines() {
             let line = line.unwrap(); // TODO: Error handling
-            let (parsed_addr, parsed_line) = Line::parse(&line, &config, &mut file_state);
+            let (parsed_addr, parsed_line) = Line::parse(&line, &mut file_state);
             if let Some(addr) = parsed_addr {
+                let (bank, _) = split_addr16(addr);
+                if bank < bank_start || bank > bank_end {
+                    eprintln!(
+                        "Line defined outside of the bank range of its file: ${addr:06X} in `{}`",
+                        filename.display()
+                    )
+                }
                 file_state.cur_addr = addr;
             }
 
@@ -213,7 +190,7 @@ fn main() {
                     LabelType::Instruction(instr_proto.clone()),
                     0,
                 );
-                if let Err((_, l)) = global_state.labels.insert_label(new_label) {
+                if let Err((_, l)) = labels.insert_label(new_label) {
                     eprintln!("Duplicate prototype for label {}", l.name());
                 }
             }
@@ -226,15 +203,21 @@ fn main() {
             }
         }
     }
+}
 
-    println!("Indexing...");
-
-    /* copy enemy-banks to respective new bank */
-    let enemy_banks = [
-        0xA2u8, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3,
-    ];
+/// Duplicates the code at the start of bank $A0 to the other enemy banks where its present. This
+/// repeated section is elided in the bank logs.
+fn clone_shared_enemy_ai_library(
+    lines: &mut BTreeMap<Addr, Vec<Line>>,
+    config: &mut Config,
+    labels: &mut LabelMap,
+) {
+    // Can't mutate lines while iterating through it, so accumulate results in temporary Vec
     let mut new_lines = Vec::new();
+
+    // Copy enemy banks to respective new bank
     for (&addr, addr_lines) in lines.range(0xA0_8000..=0xA0_8686) {
+        let enemy_banks = (0xA2u8..=0xAA).chain(0xB2..=0xB3);
         for bank in enemy_banks {
             let mut new_addr_lines = Vec::new();
             let new_addr = addr_with_bank(bank, addr);
@@ -249,7 +232,7 @@ fn main() {
                                 LabelType::Instruction(instr_proto.clone()),
                                 0,
                             );
-                            if let Err((_, l)) = global_state.labels.insert_label(new_label) {
+                            if let Err((_, l)) = labels.insert_label(new_label) {
                                 eprintln!("Duplicate prototype for label {}", l.name());
                             }
                         }
@@ -285,14 +268,12 @@ fn main() {
         }
     }
     lines.extend(new_lines);
+}
 
-    /* Autogenerate labels */
-    label::load_labels(&config, &mut global_state.labels);
-    label::generate_overrides(&mut config, &global_state.labels);
-    structs::generate_overrides(&mut config, &global_state.labels);
-    label::generate_labels(&lines, &config, &mut global_state.labels);
-
-    println!("Generating...");
+fn write_output_files(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels: &LabelMap) {
+    fn create_output_file(path: &str) -> BufWriter<File> {
+        BufWriter::new(File::create(format!("./asm/{path}")).unwrap())
+    }
 
     let mut output_file = create_output_file("main.asm");
     let _ = writeln!(output_file, "lorom");
@@ -302,7 +283,7 @@ fn main() {
     }
 
     let mut cur_bank = 0;
-    for (addr, line) in &lines {
+    for (addr, line) in lines {
         let bank = (addr >> 16) as u8;
 
         if bank != cur_bank {
@@ -323,7 +304,7 @@ fn main() {
             let _ = writeln!(output_file, "org ${first_address:06X}");
         }
 
-        if let Some(label) = global_state.labels.get_label_exact(*addr) {
+        if let Some(label) = labels.get_label_exact(*addr) {
             writeln!(
                 output_file,
                 "{}{}",
@@ -339,17 +320,12 @@ fn main() {
         }
 
         for addr_line in line {
-            let _ = writeln!(
-                output_file,
-                "{}",
-                addr_line.to_string(&config, &mut global_state.labels)
-            );
+            let _ = writeln!(output_file, "{}", addr_line.to_string(&config, labels));
         }
     }
 
     output_file = create_output_file("labels.asm");
-    for l in global_state
-        .labels
+    for l in labels
         .iter_labels()
         .filter(|l| !l.assigned.get() && !l.is_blocked())
     {
@@ -357,8 +333,7 @@ fn main() {
     }
 
     output_file = create_output_file("all_labels.asm");
-    for l in global_state
-        .labels
+    for l in labels
         .iter_labels()
         .filter(|l| l.assigned.get() && !l.is_blocked())
     {
@@ -367,8 +342,7 @@ fn main() {
 
     output_file = create_output_file("externals.asm");
     let _ = writeln!(output_file, "; Generated by sm_banklog_parser");
-    for l in global_state
-        .labels
+    for l in labels
         .iter_labels()
         .filter(|l| l.assigned.get() && l.is_external() && !l.is_blocked())
     {
@@ -376,6 +350,24 @@ fn main() {
     }
 }
 
-fn create_output_file(path: &str) -> BufWriter<File> {
-    BufWriter::new(File::create(format!("./asm/{path}")).unwrap())
+fn main() {
+    let mut config = Config::load("./config/").expect("Failed to read config");
+
+    println!("Parsing...");
+    let mut lines = BTreeMap::new();
+    let mut labels = LabelMap::new();
+    parse_files(&mut lines, &mut labels);
+
+    println!("Indexing...");
+
+    clone_shared_enemy_ai_library(&mut lines, &mut config, &mut labels);
+
+    /* Autogenerate labels */
+    label::load_labels(&config, &mut labels);
+    label::generate_overrides(&mut config, &labels);
+    structs::generate_overrides(&mut config, &labels);
+    label::generate_labels(&lines, &config, &mut labels);
+
+    println!("Generating...");
+    write_output_files(&lines, &config, &labels);
 }
