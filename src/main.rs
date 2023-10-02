@@ -243,10 +243,10 @@ fn clone_shared_enemy_ai_library(
                             if let Some(0xA0) =
                                 c.get_operand_label_address(None).map(|a| split_addr16(a).0)
                             {
-                                config.add_overrides(Some(Override {
+                                config.add_override(Override {
                                     db: Some(0xA0),
                                     ..Override::new(OverrideAddr::Address(new_addr))
-                                }));
+                                });
                             }
                         }
 

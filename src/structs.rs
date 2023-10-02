@@ -72,5 +72,7 @@ pub fn generate_overrides(config: &mut Config, labels: &LabelMap) {
         }
     }
 
-    config.add_overrides(new_overrides);
+    for o in new_overrides {
+        config.add_override(o);
+    }
 }

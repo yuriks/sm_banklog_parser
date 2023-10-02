@@ -228,28 +228,26 @@ impl Config {
         }
     }
 
-    pub fn add_overrides(&mut self, override_iter: impl IntoIterator<Item = Override>) {
-        'outer: for override_ in override_iter {
-            // Check for an overlapping override by checking insertion neighbors
-            let preceding_ov = self
-                .overrides
-                .range(..=override_.addr.first())
-                .last()
-                .map(|(_, v)| v);
-            let following_ov = self
-                .overrides
-                .range(override_.addr.last()..)
-                .next()
-                .map(|(_, v)| v);
-            for neighbor in itertools::chain(preceding_ov, following_ov) {
-                if override_.addr.overlaps(&neighbor.addr) {
-                    eprintln!("Overlapping overrides: {override_:?} and {neighbor:?}");
-                    continue 'outer;
-                }
+    pub fn add_override(&mut self, override_: Override) {
+        // Check for an overlapping override by checking insertion neighbors
+        let preceding_ov = self
+            .overrides
+            .range(..=override_.addr.first())
+            .last()
+            .map(|(_, v)| v);
+        let following_ov = self
+            .overrides
+            .range(override_.addr.last()..)
+            .next()
+            .map(|(_, v)| v);
+        for neighbor in itertools::chain(preceding_ov, following_ov) {
+            if override_.addr.overlaps(&neighbor.addr) {
+                eprintln!("Overlapping overrides: {override_:?} and {neighbor:?}");
+                return;
             }
-
-            self.overrides.insert(override_.addr.first(), override_);
         }
+
+        self.overrides.insert(override_.addr.first(), override_);
     }
 
     pub fn get_struct(&self, name: &str) -> Option<&Struct> {
