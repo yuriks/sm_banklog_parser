@@ -1,0 +1,22 @@
+{
+  "name": "pjdasm-web",
+  "version": "0.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "solid-devtools": "^0.29.3",
+    "vite": "^5.1.5",
+    "vite-plugin-solid": "^2.10.1"
+  },
+  "dependencies": {
+    "@solid-primitives/intersection-observer": "^2.1.6",
+    "solid-js": "^1.8.15"
+  }
+}

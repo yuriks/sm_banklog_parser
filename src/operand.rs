@@ -22,7 +22,7 @@ pub enum OperandType {
     NonNullAddress,
 }
 
-#[derive(PartialEq, Deserialize)]
+#[derive(Clone, PartialEq, Deserialize)]
 pub struct Override {
     pub addr: OverrideAddr,
 
@@ -138,6 +138,7 @@ impl Display for OverrideAddr {
     }
 }
 
+#[derive(Clone)]
 pub struct OverrideMap {
     overrides: BTreeMap<Addr, Override>,
 }

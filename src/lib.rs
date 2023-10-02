@@ -17,8 +17,9 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write as _};
 use std::mem;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context, Error};
 use glob::glob;
 use regex::Regex;
 use winnow::Parser;
@@ -27,22 +28,25 @@ use crate::code::Code;
 use crate::config::Config;
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelName, LabelType};
-use crate::line::{Line, LineContent};
+use crate::line::LineContent;
 use crate::opcode::StaticAddress;
 use crate::operand::{Override, OverrideAddr, OverrideMap};
+use crate::output_tokens::{TokenType, TokenWriter};
 
 mod code;
-mod config;
+pub mod config;
 mod data;
 mod directives;
-mod label;
+pub mod label;
 mod line;
 mod opcode;
-mod operand;
+pub mod operand;
+pub mod output_tokens;
 mod parse;
-mod structs;
+pub mod structs;
 mod types;
 
+pub use line::Line;
 pub use types::{Addr, Bank};
 
 pub(crate) fn split_addr16(addr: Addr) -> (Bank, u16) {
@@ -161,9 +165,9 @@ impl FileParsingState {
     }
 }
 
-type Banks = BTreeMap<Bank, Vec<Line>>;
+pub type Banks = BTreeMap<Bank, Vec<Line>>;
 
-fn parse_files() -> Banks {
+pub fn parse_files() -> Banks {
     let mut result = BTreeMap::new();
 
     let filenames = glob("./logs/*.asm").unwrap();
@@ -228,7 +232,7 @@ fn parse_files() -> Banks {
     result
 }
 
-fn generate_instruction_prototype_labels(banks: &Banks, labels: &mut LabelMap) {
+pub fn generate_instruction_prototype_labels(banks: &Banks, labels: &mut LabelMap) {
     for line in banks.values().flatten() {
         if let LineContent::Code(Code {
             address,
@@ -251,7 +255,7 @@ fn generate_instruction_prototype_labels(banks: &Banks, labels: &mut LabelMap) {
 
 /// Duplicates the code at the start of bank $A0 to the other enemy banks where its present. This
 /// repeated section is elided in the bank logs.
-fn clone_shared_enemy_ai_library(
+pub fn clone_shared_enemy_ai_library(
     banks: &mut Banks,
     overrides: &mut OverrideMap,
     labels: &mut LabelMap,
@@ -353,22 +357,61 @@ fn clone_shared_enemy_ai_library(
     Ok(())
 }
 
-struct DisplayLine<'l> {
-    prefix_lines: String,
-    address: Option<Addr>,
-    line: String,
-    comment: Option<&'l str>,
+pub struct DisplayLine<'l> {
+    pub prefix_lines: String,
+    pub address: Option<Addr>,
+    pub line: String,
+    pub comment: Option<&'l str>,
 }
 
-fn emit_bank_lines<'l>(
+pub fn format_line(
+    output: &mut TokenWriter,
+    disp: &DisplayLine,
+    add_address_to_comment: bool,
+) -> Result<(), Error> {
+    let has_comment = add_address_to_comment || disp.comment.is_some();
+
+    let (first_line, remaining_lines) = disp.line.split_once('\n').unzip();
+    let first_line = first_line.unwrap_or(&disp.line);
+
+    if has_comment {
+        if !first_line.is_empty() {
+            write!(output, "{:<43} ", first_line)?;
+        }
+
+        output.open(TokenType::Comment);
+        write!(output, ";")?;
+
+        if let Some(address) = disp.address.filter(|_| add_address_to_comment) {
+            let (bank, low_addr) = split_addr16(address);
+            write!(output, " ${bank:02X}:{low_addr:04X} ;")?;
+        }
+        if let Some(comment) = disp.comment.as_ref().filter(|s| !s.is_empty()) {
+            write!(output, "{}", comment)?;
+        }
+        output.close();
+
+        writeln!(output)?;
+    } else {
+        writeln!(output, "{}", first_line)?;
+    }
+
+    if let Some(rest) = remaining_lines {
+        writeln!(output, "{}", rest)?;
+    }
+
+    Ok(())
+}
+
+pub fn emit_bank_lines<'l>(
     bank_lines: &'l [Line],
     overrides: &OverrideMap,
     labels: &LabelMap,
-    mut cb: impl FnMut(DisplayLine<'l>, &Line) -> anyhow::Result<()>,
+    mut cb: impl FnMut(usize, DisplayLine<'l>, &Line) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let mut current_addr = Addr::MAX;
 
-    for line in bank_lines {
+    for (line_idx, line) in bank_lines.iter().enumerate() {
         let address = line.address();
         let mut prefix_lines = String::new();
 
@@ -383,13 +426,14 @@ fn emit_bank_lines<'l>(
                 let label = labels.get_label_exact(address);
                 if let Some(label) = label {
                     writeln!(&mut prefix_lines, "{}:", label.name()).unwrap();
-                    label.assigned.set(true);
+                    label.assigned.store(true, Ordering::Relaxed);
                 }
                 current_addr += pc_advance;
             }
         }
 
         cb(
+            line_idx,
             DisplayLine {
                 prefix_lines,
                 address,
@@ -403,7 +447,7 @@ fn emit_bank_lines<'l>(
     Ok(())
 }
 
-fn write_output_files(
+pub fn write_output_files(
     banks: &Banks,
     overrides: &OverrideMap,
     labels: &LabelMap,
@@ -420,39 +464,18 @@ fn write_output_files(
         let mut output_file = create_output_file(&format!("bank_{bank:02x}.asm"))?;
         writeln!(main_file, "incsrc bank_{bank:02x}.asm")?;
 
-        emit_bank_lines(bank_lines, overrides, labels, |disp, line| {
+        let mut line_buf = TokenWriter::new();
+
+        emit_bank_lines(bank_lines, overrides, labels, |_idx, disp, line| {
             let add_address_to_comment =
                 matches!(line.contents, LineContent::Data(_) | LineContent::Code(_));
-            let has_comment = add_address_to_comment || disp.comment.is_some();
-
-            let (first_line, remaining_lines) = disp.line.split_once('\n').unzip();
-            let first_line = first_line.unwrap_or(&disp.line);
 
             write!(output_file, "{}", disp.prefix_lines)?;
 
-            if has_comment {
-                if first_line.is_empty() {
-                    write!(output_file, ";")?;
-                } else {
-                    write!(output_file, "{:<43} ;", first_line)?;
-                }
+            format_line(&mut line_buf, &disp, add_address_to_comment)?;
+            let tstr = line_buf.finish();
 
-                if let Some(address) = disp.address.filter(|_| add_address_to_comment) {
-                    let (bank, low_addr) = split_addr16(address);
-                    write!(output_file, " ${bank:02X}:{low_addr:04X} ;")?;
-                }
-                if let Some(comment) = disp.comment.as_ref().filter(|s| !s.is_empty()) {
-                    write!(output_file, "{}", comment)?;
-                }
-                writeln!(output_file)?;
-            } else {
-                writeln!(output_file, "{}", first_line)?;
-            }
-
-            if let Some(rest) = remaining_lines {
-                writeln!(output_file, "{}", rest)?;
-            }
-
+            output_file.write(tstr.text.as_bytes())?;
             Ok(())
         })?;
     }
@@ -472,13 +495,13 @@ fn write_output_files(
     }
 
     dump_labels(labels, "labels.asm", |l| {
-        !l.assigned.get() && !l.is_blocked()
+        !l.assigned.load(Ordering::Relaxed) && !l.is_blocked()
     })?;
     dump_labels(labels, "all_labels.asm", |l| {
-        l.assigned.get() && !l.is_blocked()
+        l.assigned.load(Ordering::Relaxed) && !l.is_blocked()
     })?;
     dump_labels(labels, "externals.asm", |l| {
-        l.assigned.get() && l.is_external() && !l.is_blocked()
+        l.assigned.load(Ordering::Relaxed) && l.is_external() && !l.is_blocked()
     })?;
 
     Ok(())

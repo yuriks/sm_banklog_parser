@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::sync::atomic::Ordering;
 
 use crate::directives::InstructionPrototype;
 use crate::label::{LabelMap, LabelType};
@@ -284,7 +285,7 @@ impl Data {
                         if let Some(lbl) = labels.get_label_exact(cur_pc) {
                             /* There's a label for this address, add it into the data */
                             write!(&mut output, " : {}: ", lbl.name()).unwrap();
-                            lbl.assigned.set(true);
+                            lbl.assigned.store(true, Ordering::Relaxed);
                             first_cmd = true;
                             first_val = true;
                             last_data_cmd = "";

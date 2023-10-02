@@ -1,0 +1,39 @@
+.asmView {
+    display: block;
+    overflow: scroll;
+
+    height: 100vh;
+    width: 75%;
+    margin: 0 auto;
+}
+
+.asmView pre {
+    width: 100%;
+    margin: 0;
+}
+
+.asmView table {
+    width: 100%;
+    table-layout: fixed;
+
+    white-space: pre;
+
+    border-spacing: 0;
+    border-collapse: collapse;
+}
+
+.asmView td {
+    padding: 0;
+}
+
+.asmView tr:nth-child(even) {
+    background-color: #f8f8f8;
+}
+
+.asmView tr:nth-child(odd) {
+    background-color: #fcfcfc;
+}
+
+.asm_comment {
+    color: #007000;
+}

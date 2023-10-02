@@ -1,0 +1,19 @@
+[package]
+name = "pjdasm-web"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+pjdasm = { path = ".." }
+
+anyhow = "1.0.75"
+arc-swap = "1.6.0"
+axum = { version = "0.6.20", features = ["macros"] }
+hyper = { version = "1.0.0-rc.4", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.106"
+serde_with = { version = "3.3.0", default-features = false }
+thiserror = "1.0.48"
+tokio = { version = "1.32.0", features = ["full"] }
+tower = "0.4.13"
+tower-http = { version = "0.4.4", features = ["cors", "fs"] }
