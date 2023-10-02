@@ -293,17 +293,7 @@ fn write_output_files(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels
             }
 
             if let Some(label) = labels.get_label_exact(addr) {
-                writeln!(
-                    output_file,
-                    "{}{}",
-                    label.name(),
-                    if label.name().starts_with('.') {
-                        ""
-                    } else {
-                        ":"
-                    }
-                )
-                .unwrap();
+                writeln!(output_file, "{}:", label.name()).unwrap();
                 label.assigned.set(true);
             }
 
