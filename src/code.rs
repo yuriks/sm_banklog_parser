@@ -34,6 +34,10 @@ pub struct Code {
 }
 
 impl Code {
+    pub fn pc_advance(&self) -> u64 {
+        1 + u64::from(self.operand_size)
+    }
+
     fn arg_label(&self, config: &Config, labels: &LabelMap) -> Option<String> {
         let operand_value = self.get_operand();
         let target = match operand_value {

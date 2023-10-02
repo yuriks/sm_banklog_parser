@@ -26,6 +26,14 @@ impl Line {
             Line::Code(c) => c.to_string(config, labels),
         }
     }
+
+    pub fn pc_advance(&self) -> u64 {
+        match self {
+            Line::Comment(_) => 0,
+            Line::Data(d) => d.pc_advance(),
+            Line::Code(c) => c.pc_advance(),
+        }
+    }
 }
 
 fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<(), String> {

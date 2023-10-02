@@ -61,6 +61,10 @@ pub struct Data {
 }
 
 impl Data {
+    pub fn pc_advance(&self) -> u64 {
+        self.data.iter().map(|d| d.length()).sum()
+    }
+
     pub fn generate_spritemap(&self) -> Result<Vec<String>, String> {
         let mut result = Vec::new();
         let mut it = self.data.iter();
