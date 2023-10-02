@@ -34,10 +34,6 @@ impl Struct {
         };
         last_field.offset + last_field.length
     }
-
-    pub fn field_at_offset(&self, offset: u64) -> Option<&StructField> {
-        self.fields.iter().find(|f| f.offset == offset)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -205,11 +201,10 @@ impl Config {
         }
 
         let labels: Vec<Label> = read_config_entries(&format!("{path}/labels/*.yaml"))?;
-        let overrides = BTreeMap::from_iter(
-            read_config_entries::<Override>(&format!("{path}/overrides/*.yaml"))?
-                .into_iter()
-                .map(|o| (o.addr.first(), o)),
-        );
+        let overrides = read_config_entries::<Override>(&format!("{path}/overrides/*.yaml"))?
+            .into_iter()
+            .map(|o| (o.addr.first(), o))
+            .collect();
         let structs: Vec<Struct> = read_config_entries(&format!("{path}/structs/*.yaml"))?;
 
         Ok(Config {

@@ -7,6 +7,7 @@
 #![allow(clippy::cast_possible_wrap)]
 #![allow(clippy::no_effect_underscore_binding)]
 #![allow(clippy::verbose_bit_mask)]
+#![allow(clippy::items_after_statements)]
 
 use std::io::BufWriter;
 use std::{
@@ -159,8 +160,7 @@ fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
         let bank_start = u8::from_str_radix(&cap[1], 16).unwrap();
         let bank_end = cap
             .get(2)
-            .map(|s| u8::from_str_radix(s.as_str(), 16).unwrap())
-            .unwrap_or(bank_start);
+            .map_or(bank_start, |s| u8::from_str_radix(s.as_str(), 16).unwrap());
 
         let file = BufReader::new(File::open(&filename).unwrap());
         let mut file_state = FileParsingState::new(addr16_with_bank(bank_start, 0x8000));
@@ -175,7 +175,7 @@ fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
                     eprintln!(
                         "Line defined outside of the bank range of its file: ${addr:06X} in `{}`",
                         filename.display()
-                    )
+                    );
                 }
                 file_state.cur_addr = addr;
             }
@@ -308,7 +308,7 @@ fn write_output_files(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels
             }
 
             for line in addr_lines {
-                writeln!(output_file, "{}", line.to_string(&config, labels)).unwrap();
+                writeln!(output_file, "{}", line.to_string(config, labels)).unwrap();
                 current_addr += line.pc_advance();
             }
         }

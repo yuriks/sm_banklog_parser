@@ -227,7 +227,7 @@ fn process_code_line(
         .filter(|(bank, addr)| !matches!((bank, addr), (0x7E, 0x2000..=0x5FFF)))
         .map(|(bank, _)| bank);
 
-    let comment = comment.map(|c| c.to_owned());
+    let comment = comment.map(ToOwned::to_owned);
 
     if opcode.name == "BRK" && operand_size == 0 {
         let data = Data {
