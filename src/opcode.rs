@@ -6,7 +6,7 @@ use crate::{Addr, Bank};
 
 lazy_static! {
     pub static ref OPCODES: HashMap<u8, Opcode> = maplit::hashmap! {
-        0x00 => Opcode::new(0x00, "BRK", AddrMode::Immediate),
+        0x00 => Opcode::new(0x00, "BRK", AddrMode::ImmediateByte),
 
         0x61 => Opcode::new(0x61, "ADC", AddrMode::DirectIndexedIndirect),
         0x63 => Opcode::new(0x63, "ADC", AddrMode::StackRelative),
@@ -228,7 +228,7 @@ lazy_static! {
         0x58 => Opcode::new(0x58, "CLI", AddrMode::Implied),
         0xB8 => Opcode::new(0xB8, "CLV", AddrMode::Implied),
 
-        0x02 => Opcode::new(0x02, "COP", AddrMode::Immediate),
+        0x02 => Opcode::new(0x02, "COP", AddrMode::ImmediateByte),
 
         0xCA => Opcode::new(0xCA, "DEX", AddrMode::Implied),
         0x88 => Opcode::new(0x88, "DEY", AddrMode::Implied),
@@ -303,7 +303,7 @@ lazy_static! {
         0x0C => Opcode::new(0x0C, "TSB", AddrMode::Absolute),
 
         0xCB => Opcode::new(0xCB, "WAI", AddrMode::Implied),
-        0x42 => Opcode::new(0x42, "WDM", AddrMode::Immediate),
+        0x42 => Opcode::new(0x42, "WDM", AddrMode::ImmediateByte),
 
         0xEB => Opcode::new(0xEB, "XBA", AddrMode::Implied),
         0xFB => Opcode::new(0xDB, "XCE", AddrMode::Implied)
@@ -313,7 +313,9 @@ lazy_static! {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AddrMode {
     Implied,
+    /// Immediate operand whose size depends on the current flags
     Immediate,
+    /// Immediate operand which is always byte-sized independently of flags
     ImmediateByte,
     PcRelative,
     PcRelativeLong,
