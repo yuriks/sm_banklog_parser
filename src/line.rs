@@ -10,7 +10,7 @@ use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
 use crate::parse::{parse_sub_comment, ParsedCodeLine, ParsedDataLine, ParsedFillToLine};
-use crate::{parse, Addr, Bank, FileParsingState, SpecialParsingType};
+use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingType};
 
 #[derive(Debug, Clone)]
 pub enum LineContent {
@@ -32,6 +32,14 @@ impl LineContent {
             LineContent::Raw(_) => 0,
             LineContent::Data(d) => d.pc_advance(),
             LineContent::Code(c) => c.pc_advance(),
+        }
+    }
+
+    /// True if the line emit output bytes. Equivalent to `self.pc_advance() != 0`.
+    pub fn produces_output(&self) -> bool {
+        match self {
+            LineContent::Data(_) | LineContent::Code(_) => true,
+            LineContent::Raw(_) => false,
         }
     }
 }
@@ -139,11 +147,13 @@ impl Line {
     }
 
     pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {
+        let prev_address = file_state.cur_addr;
+
         let special_type = file_state.get_modifiers().data_type;
 
-        if let Ok(parsed) = parse::parse_comment_line.parse(line) {
-            let mut address = file_state.cur_addr;
+        let mut address = file_state.cur_addr;
 
+        let result = if let Ok(parsed) = parse::parse_comment_line.parse(line) {
             if let Some(rest) = parsed.strip_prefix("@!") {
                 if let Err(s) = process_directive(rest, file_state) {
                     eprintln!("{s}");
@@ -166,7 +176,7 @@ impl Line {
             }
 
             Line {
-                address: file_state.cur_addr,
+                address,
                 contents: LineContent::Raw(line.to_owned()),
                 comment: None,
             }
@@ -179,8 +189,11 @@ impl Line {
                 comment: _,
             } = parsed;
 
+            address = line_addr;
+            file_state.cur_addr = address;
+
             Line {
-                address: line_addr,
+                address,
                 contents: LineContent::Raw(format!("padbyte ${fill_byte:02X} : pad ${target:06X}")),
                 comment: None,
             }
@@ -198,8 +211,13 @@ impl Line {
                 _ => None,
             };
 
+            address = line_addr;
+            file_state.cur_addr = address;
+
+            file_state.cur_addr += instruction_bytes.len() as u64;
+
             Line {
-                address: line_addr,
+                address,
                 contents: process_code_line(
                     file_state,
                     line_addr,
@@ -211,21 +229,18 @@ impl Line {
             }
         } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
             let ParsedDataLine {
-                line_addr: address,
+                line_addr,
                 data_type,
                 data_values: data,
                 comment,
             } = parsed;
 
+            address = line_addr;
+            file_state.cur_addr = address;
+
             file_state.last_data_cmd = data_type.to_string();
-
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
-
-            let mut lpc = address + addr_offset;
-            if (lpc & 0xFFFF) < 0x8000 {
-                lpc |= 0x8000;
-            }
-            file_state.last_pc = lpc;
+            file_state.cur_addr += addr_offset;
 
             Line {
                 address,
@@ -244,15 +259,8 @@ impl Line {
                 comment,
             } = parsed;
 
-            let address = file_state.last_pc;
-
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
-
-            let mut lpc = address + addr_offset;
-            if (lpc & 0xFFFF) < 0x8000 {
-                lpc |= 0x8000;
-            }
-            file_state.last_pc = lpc;
+            file_state.cur_addr += addr_offset;
 
             Line {
                 address,
@@ -265,11 +273,26 @@ impl Line {
             }
         } else {
             Line {
-                address: file_state.cur_addr,
+                address,
                 contents: LineContent::Raw(line.to_owned()),
                 comment: None,
             }
+        };
+
+        if result.address == prev_address && file_state.cur_addr != prev_address {
+            let a = prev_address + result.contents.pc_advance();
+            let b = file_state.cur_addr;
+            assert_eq!(
+                a, b,
+                "Incorrect PC advance. Expected ${a:06X} but got ${b:06X}"
+            );
         }
+
+        if split_addr16(file_state.cur_addr).1 < 0x8000 {
+            file_state.cur_addr |= 0x8000;
+        }
+
+        result
     }
 }
 

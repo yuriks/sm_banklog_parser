@@ -108,8 +108,6 @@ pub struct FileParsingState {
     prefixed_instruction_directive: Option<InstructionPrototype>,
 
     last_data_cmd: String,
-    // TODO: This might be redundant with cur_addr
-    last_pc: u64,
     cur_addr: u64,
 }
 
@@ -119,7 +117,6 @@ impl FileParsingState {
             modifier_stack: vec![ParsingModifiers::default()],
             prefixed_instruction_directive: None,
             last_data_cmd: String::new(),
-            last_pc: 0,
             cur_addr: start_addr,
         }
     }
@@ -168,16 +165,15 @@ fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
         for line in file.lines() {
             let line = line.unwrap(); // TODO: Error handling
             let parsed = Line::parse(&line, &mut file_state);
-            if parsed.address != file_state.cur_addr {
-                let (bank, _) = split_addr16(parsed.address);
-                if bank < bank_start || bank > bank_end {
-                    eprintln!(
-                        "Line defined outside of the bank range of its file: ${:06X} in `{}`",
-                        parsed.address,
-                        filename.display()
-                    );
-                }
-                file_state.cur_addr = parsed.address;
+
+            let (bank, _) = split_addr16(parsed.address);
+            if (bank < bank_start || bank > bank_end) && parsed.contents.produces_output() {
+                eprintln!(
+                    "Line defined outside of the bank range of its file: ${:06X} in `{}`. Line: {:#X?}",
+                    parsed.address,
+                    filename.display(),
+                    parsed
+                );
             }
 
             if let LineContent::Code(Code {
@@ -277,14 +273,18 @@ fn write_output_files(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels
                 writeln!(output_file, "org ${current_addr:06X}").unwrap();
             }
 
-            if let Some(label) = labels.get_label_exact(addr) {
-                writeln!(output_file, "{}:", label.name()).unwrap();
-                label.assigned.set(true);
-            }
+            let label = labels.get_label_exact(addr);
 
             for line in addr_lines {
+                let pc_advance = line.contents.pc_advance();
+                if pc_advance != 0 {
+                    if let Some(label) = label {
+                        writeln!(output_file, "{}:", label.name()).unwrap();
+                        label.assigned.set(true);
+                    }
+                }
                 writeln!(output_file, "{}", line.to_string(config, labels)).unwrap();
-                current_addr += line.contents.pc_advance();
+                current_addr += pc_advance;
             }
         }
     }
