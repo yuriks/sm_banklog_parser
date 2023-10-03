@@ -187,8 +187,7 @@ fn instruction_logged_address(i: &mut &str) -> PResult<(Option<Bank>, u16)> {
 }
 
 pub fn parse_comment_line<'i>(i: &mut &'i str) -> PResult<&'i str> {
-    // recognize() so that leading ';' is returned as part of the comment
-    preceded(space0, line_comment.recognize()).parse_next(i)
+    preceded(space0, line_comment).parse_next(i)
 }
 
 pub fn parse_bracket_line<'i>(i: &mut &'i str) -> PResult<(char, Option<&'i str>)> {
@@ -259,7 +258,7 @@ fn lazy_quantifier<
 }
 
 pub fn parse_sub_comment<'i>(i: &mut &'i str) -> PResult<(u16, &'i str)> {
-    let addr = delimited((";;;", space1, '$'), hex4, (':', space0)).parse_next(i)?;
+    let addr = delimited((";;", space1, '$'), hex4, (':', space0)).parse_next(i)?;
     let (description, ()) =
         lazy_quantifier(|_| true, (opt((space0, ";;;")), space0, eof).void()).parse_next(i)?;
     Ok((addr, description))

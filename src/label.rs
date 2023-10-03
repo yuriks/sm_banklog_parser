@@ -9,7 +9,8 @@ use crate::code::Code;
 use crate::config::{OperandType, Override, OverrideAddr};
 use crate::data::{get_data_label_address, Data};
 use crate::directives::InstructionPrototype;
-use crate::{config, config::Config, line::Line, opcode::AddrMode, split_addr, split_addr16, Addr};
+use crate::line::{Line, LineContent};
+use crate::{config, config::Config, opcode::AddrMode, split_addr, split_addr16, Addr};
 
 pub struct LabelMap {
     labels: BTreeMap<Addr, Label>,
@@ -259,10 +260,10 @@ pub fn load_labels(config: &Config, labels: &mut LabelMap) {
 pub fn generate_labels(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels: &mut LabelMap) {
     for addr_lines in lines.values() {
         for line in addr_lines {
-            match line {
-                Line::Code(c) => generate_label_for_line_operand(config, labels, c),
-                Line::Data(data) => generate_labels_for_line_data(config, labels, data),
-                Line::Comment(_) => {}
+            match &line.contents {
+                LineContent::Code(code) => generate_label_for_line_operand(config, labels, code),
+                LineContent::Data(data) => generate_labels_for_line_data(config, labels, data),
+                LineContent::Raw(_) => {}
             }
         }
     }

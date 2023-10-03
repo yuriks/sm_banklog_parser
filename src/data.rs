@@ -56,7 +56,6 @@ impl DataVal {
 pub struct Data {
     pub address: Addr,
     pub data: Vec<DataVal>,
-    pub comment: Option<String>,
     pub special_type: Option<SpecialParsingType>,
 }
 
@@ -235,34 +234,48 @@ impl Data {
         Ok(result)
     }
 
-    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
+    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> (String, Vec<String>) {
+        fn indent_vec(mut v: Vec<String>) -> Vec<String> {
+            for s in &mut v {
+                s.insert_str(0, "    ");
+            }
+            v
+        }
+
         let mut cur_pc = self.address;
-        let mut output_lines = Vec::new();
 
         match self.special_type {
-            Some(SpecialParsingType::Spritemap) => {
-                output_lines = self.generate_spritemap().expect("invalid spritemap data");
-            }
-            Some(SpecialParsingType::SpritemapRaw) => {
-                output_lines = self
-                    .generate_raw_spritemap()
-                    .expect("invalid spritemap data");
-            }
+            Some(SpecialParsingType::Spritemap) => (
+                String::new(),
+                indent_vec(self.generate_spritemap().expect("invalid spritemap data")),
+            ),
+            Some(SpecialParsingType::SpritemapRaw) => (
+                String::new(),
+                indent_vec(
+                    self.generate_raw_spritemap()
+                        .expect("invalid spritemap data"),
+                ),
+            ),
             Some(SpecialParsingType::InstructionList) => {
-                output_lines = self
-                    .generate_instruction_list(labels)
-                    .expect("invalid instruction list data");
-                output_lines.push(
-                    Data {
-                        special_type: None,
-                        ..self.clone()
-                    }
-                    .to_string(config, labels),
+                let mut output_lines = indent_vec(
+                    self.generate_instruction_list(labels)
+                        .expect("invalid instruction list data"),
                 );
+                let original_output = Data {
+                    special_type: None,
+                    ..self.clone()
+                }
+                .to_string(config, labels);
+
+                if !original_output.0.is_empty() {
+                    output_lines.push(original_output.0);
+                }
+                output_lines.extend(original_output.1);
+                (String::new(), output_lines)
             }
             Some(_) => unimplemented!(),
             None => {
-                let mut output = String::new();
+                let mut output = String::from("    ");
                 let mut last_data_cmd = "";
                 let mut first_cmd = true;
                 let mut first_val = true;
@@ -304,24 +317,9 @@ impl Data {
                     cur_pc += data_len;
                 }
 
-                output_lines.push(output);
+                (output, Vec::new())
             }
         }
-
-        let mut output = String::new();
-
-        let mut it = output_lines.iter_mut();
-        if let Some(line0) = it.next() {
-            output = format!("    {:<39} ; ${:06X} |", line0, self.address);
-            if let Some(comment) = &self.comment {
-                write!(output, " {comment}").unwrap();
-            }
-        }
-        for line in it {
-            write!(output, "\n    {line:<40}").unwrap();
-        }
-
-        output
     }
 
     fn emit_data_atom(

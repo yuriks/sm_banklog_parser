@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 use crate::config::Override;
 use crate::label::{format_address_expression_str, LabelMap, LabelOrLiteral};
 use crate::opcode::StaticAddress;
@@ -26,7 +24,6 @@ pub struct Code {
     pub opcode: &'static Opcode,
     pub raw_operand: u32,
     pub operand_size: u8,
-    pub comment: Option<String>,
 
     pub logged_bank: Option<Bank>,
 
@@ -150,40 +147,36 @@ impl Code {
     //noinspection IncorrectFormatting
     #[allow(clippy::match_same_arms)]
     pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
-        let arg_label = self.arg_label(config, labels).unwrap_or_default();
+        let op = self.opcode.name;
+        let arg = self.arg_label(config, labels).unwrap_or_default();
         #[rustfmt::skip]
-        let opcode = match self.opcode.addr_mode {
-            AddrMode::Absolute | AddrMode::CodeAbsolute => format!("{}.w {}", self.opcode.name, arg_label),
-            AddrMode::AbsoluteIndexedIndirect =>        format!("{}.w ({},X)", self.opcode.name, arg_label),
-            AddrMode::AbsoluteLongIndexed =>            format!("{}.l {},X", self.opcode.name, arg_label),
-            AddrMode::AbsoluteIndexedX =>               format!("{}.w {},X", self.opcode.name, arg_label),
-            AddrMode::AbsoluteIndexedY =>               format!("{}.w {},Y", self.opcode.name, arg_label),
-            AddrMode::AbsoluteIndirect =>               format!("{}.w ({})", self.opcode.name, arg_label),
-            AddrMode::AbsoluteIndirectLong =>           format!("{}.w [{}]", self.opcode.name, arg_label),
-            AddrMode::AbsoluteLong =>                   format!("{}.l {}", self.opcode.name, arg_label),
-            AddrMode::BlockMove =>                      format!("{} {}", self.opcode.name, arg_label),
-            AddrMode::Direct =>                         format!("{}.b {}", self.opcode.name, arg_label),
-            AddrMode::DirectIndexedIndirect =>          format!("{}.b ({},X)", self.opcode.name, arg_label),
-            AddrMode::DirectIndexedX =>                 format!("{}.b {},X", self.opcode.name, arg_label),
-            AddrMode::DirectIndexedY =>                 format!("{}.b {},Y", self.opcode.name, arg_label),
-            AddrMode::DirectIndirect =>                 format!("{}.b ({})", self.opcode.name, arg_label),
-            AddrMode::DirectIndirectIndexed =>          format!("{}.b ({}),Y", self.opcode.name, arg_label),
-            AddrMode::DirectIndirectLongIndexed =>      format!("{}.b [{}],Y", self.opcode.name, arg_label),
-            AddrMode::DirectIndirectLong =>             format!("{}.b [{}]", self.opcode.name, arg_label),
-            AddrMode::Immediate =>                      format!("{}.{} #{}", self.opcode.name, if self.operand_size == 1 { "b" } else { "w" }, arg_label),
-            AddrMode::ImmediateByte =>                  format!("{}.b #{}", self.opcode.name, arg_label),
-            AddrMode::Implied =>                        self.opcode.name.to_string(),
-            AddrMode::PcRelative =>                     format!("{} {}", self.opcode.name, arg_label),
-            AddrMode::PcRelativeLong =>                 format!("{} {}", self.opcode.name, arg_label),
-            AddrMode::StackRelative =>                  format!("{}.b {},S", self.opcode.name, arg_label),
-            AddrMode::StackRelativeIndirectIndexed =>   format!("{}.b ({},S),Y", self.opcode.name, arg_label),
+        let result = match self.opcode.addr_mode {
+            AddrMode::Absolute
+            | AddrMode::CodeAbsolute               => format!("    {op}.w {arg}"),
+            AddrMode::AbsoluteIndexedIndirect      => format!("    {op}.w ({arg},X)"),
+            AddrMode::AbsoluteLongIndexed          => format!("    {op}.l {arg},X"),
+            AddrMode::AbsoluteIndexedX             => format!("    {op}.w {arg},X"),
+            AddrMode::AbsoluteIndexedY             => format!("    {op}.w {arg},Y"),
+            AddrMode::AbsoluteIndirect             => format!("    {op}.w ({arg})"),
+            AddrMode::AbsoluteIndirectLong         => format!("    {op}.w [{arg}]"),
+            AddrMode::AbsoluteLong                 => format!("    {op}.l {arg}"),
+            AddrMode::BlockMove                    => format!("    {op} {arg}"),
+            AddrMode::Direct                       => format!("    {op}.b {arg}"),
+            AddrMode::DirectIndexedIndirect        => format!("    {op}.b ({arg},X)"),
+            AddrMode::DirectIndexedX               => format!("    {op}.b {arg},X"),
+            AddrMode::DirectIndexedY               => format!("    {op}.b {arg},Y"),
+            AddrMode::DirectIndirect               => format!("    {op}.b ({arg})"),
+            AddrMode::DirectIndirectIndexed        => format!("    {op}.b ({arg}),Y"),
+            AddrMode::DirectIndirectLongIndexed    => format!("    {op}.b [{arg}],Y"),
+            AddrMode::DirectIndirectLong           => format!("    {op}.b [{arg}]"),
+            AddrMode::Immediate                    => format!("    {op}.{} #{arg}", if self.operand_size == 1 { "b" } else { "w" }),
+            AddrMode::ImmediateByte                => format!("    {op}.b #{arg}"),
+            AddrMode::Implied                      => format!("    {op}"),
+            AddrMode::PcRelative                   => format!("    {op} {arg}"),
+            AddrMode::PcRelativeLong               => format!("    {op} {arg}"),
+            AddrMode::StackRelative                => format!("    {op}.b {arg},S"),
+            AddrMode::StackRelativeIndirectIndexed => format!("    {op}.b ({arg},S),Y"),
         };
-
-        let mut result = format!("    {:<39} ; ${:06X} |", opcode, self.address);
-        if let Some(comment) = &self.comment {
-            write!(&mut result, " {comment}").unwrap();
-        }
-
         result
     }
 }

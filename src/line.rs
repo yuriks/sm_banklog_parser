@@ -1,4 +1,6 @@
 use byteorder::{ByteOrder, LittleEndian};
+use std::fmt::Write;
+use std::iter;
 use winnow::Parser;
 
 use crate::code::Code;
@@ -11,27 +13,25 @@ use crate::parse::{parse_sub_comment, ParsedCodeLine, ParsedDataLine, ParsedFill
 use crate::{parse, Addr, Bank, FileParsingState, SpecialParsingType};
 
 #[derive(Debug, Clone)]
-pub enum Line {
-    // Also used for raw text in other unhandled lines
-    Comment(String),
+pub enum LineContent {
+    Raw(String),
     Data(Data),
     Code(Code),
 }
 
-impl Line {
-    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
-        match self {
-            Line::Comment(s) => s.to_string(),
-            Line::Data(d) => d.to_string(config, labels),
-            Line::Code(c) => c.to_string(config, labels),
-        }
-    }
+#[derive(Debug, Clone)]
+pub struct Line {
+    pub address: Addr,
+    pub contents: LineContent,
+    comment: Option<String>,
+}
 
+impl LineContent {
     pub fn pc_advance(&self) -> u64 {
         match self {
-            Line::Comment(_) => 0,
-            Line::Data(d) => d.pc_advance(),
-            Line::Code(c) => c.pc_advance(),
+            LineContent::Raw(_) => 0,
+            LineContent::Data(d) => d.pc_advance(),
+            LineContent::Code(c) => c.pc_advance(),
         }
     }
 }
@@ -83,28 +83,93 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 }
 
 impl Line {
-    pub fn parse(line: &str, file_state: &mut FileParsingState) -> (Option<Addr>, Line) {
+    pub fn with_address(mut self, address: Addr) -> Line {
+        self.address = address;
+        match &mut self.contents {
+            LineContent::Raw(_) => {}
+            LineContent::Data(data) => data.address = address,
+            LineContent::Code(code) => code.address = address,
+        };
+        self
+    }
+
+    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
+        let add_address_to_comment =
+            matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
+        let (mut output, extra_lines) = match &self.contents {
+            LineContent::Raw(s) => (s.trim_end().to_owned(), Vec::new()),
+            LineContent::Data(d) => d.to_string(config, labels),
+            LineContent::Code(c) => (c.to_string(config, labels), Vec::new()),
+        };
+
+        let mut it = extra_lines.into_iter();
+        if output.is_empty() {
+            output = it.next().unwrap_or_default();
+        }
+
+        fn pad_to_width(width: usize, s: &mut String) {
+            let padding_needed = width.saturating_sub(s.chars().count());
+            s.extend(iter::repeat(' ').take(padding_needed));
+        }
+
+        if add_address_to_comment || self.comment.is_some() {
+            if !output.is_empty() {
+                pad_to_width(4 + 40 - 1, &mut output);
+                output.push(' ');
+            }
+            output.push(';');
+
+            if add_address_to_comment {
+                write!(output, " ${:06X} |", self.address).unwrap();
+            }
+            if let Some(comment) = self.comment.as_ref().filter(|s| !s.is_empty()) {
+                if add_address_to_comment {
+                    output.push(' ');
+                }
+                output.push_str(comment);
+            }
+        }
+
+        for line in it {
+            output.push('\n');
+            output.push_str(&line);
+        }
+
+        output
+    }
+
+    pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {
         let special_type = file_state.get_modifiers().data_type;
 
         if let Ok(parsed) = parse::parse_comment_line.parse(line) {
-            let mut addr = None;
+            let mut address = file_state.cur_addr;
 
-            if let Some(rest) = parsed.strip_prefix(";@!") {
+            if let Some(rest) = parsed.strip_prefix("@!") {
                 if let Err(s) = process_directive(rest, file_state) {
                     eprintln!("{s}");
                 }
             } else if let Ok(parsed) = parse_sub_comment.parse(parsed) {
                 let (low_addr, _description) = parsed;
-                addr = Some(file_state.addr_in_current_bank(low_addr));
+                address = file_state.addr_in_current_bank(low_addr);
             }
-            (addr, Line::Comment(parsed.to_owned()))
+
+            Line {
+                address,
+                contents: LineContent::Raw(String::new()),
+                comment: Some(parsed.trim_end().to_owned()),
+            }
         } else if let Ok((bracket, _)) = parse::parse_bracket_line.parse(line) {
             match bracket {
                 '{' => file_state.push_context(),
                 '}' => file_state.pop_context().unwrap(), // TODO: Error handling
                 _ => unreachable!(),
             }
-            (None, Line::Comment(line.to_owned()))
+
+            Line {
+                address: file_state.cur_addr,
+                contents: LineContent::Raw(line.to_owned()),
+                comment: None,
+            }
         } else if let Ok(parsed) = parse::parse_fillto_line.parse(line) {
             let ParsedFillToLine {
                 line_addr,
@@ -114,8 +179,11 @@ impl Line {
                 comment: _,
             } = parsed;
 
-            let line = Line::Comment(format!("padbyte ${fill_byte:02X} : pad ${target:06X}"));
-            (Some(line_addr), line)
+            Line {
+                address: line_addr,
+                contents: LineContent::Raw(format!("padbyte ${fill_byte:02X} : pad ${target:06X}")),
+                comment: None,
+            }
         } else if let Ok(parsed) = parse::parse_code_line.parse(line) {
             let ParsedCodeLine {
                 line_addr,
@@ -130,14 +198,17 @@ impl Line {
                 _ => None,
             };
 
-            process_code_line(
-                file_state,
-                line_addr,
-                &instruction_bytes,
-                logged_address,
-                comment,
-                special_type,
-            )
+            Line {
+                address: line_addr,
+                contents: process_code_line(
+                    file_state,
+                    line_addr,
+                    &instruction_bytes,
+                    logged_address,
+                    special_type,
+                ),
+                comment: comment.map(|s| s.trim_end().to_owned()),
+            }
         } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
             let ParsedDataLine {
                 line_addr: address,
@@ -145,10 +216,6 @@ impl Line {
                 data_values: data,
                 comment,
             } = parsed;
-            let comment = match comment {
-                Some(c) if c.len() > 1 => Some(c.trim().to_owned()),
-                _ => None,
-            };
 
             file_state.last_data_cmd = data_type.to_string();
 
@@ -160,13 +227,15 @@ impl Line {
             }
             file_state.last_pc = lpc;
 
-            let line = Line::Data(Data {
+            Line {
                 address,
-                data,
-                comment,
-                special_type,
-            });
-            (Some(address), line)
+                contents: LineContent::Data(Data {
+                    address,
+                    data,
+                    special_type,
+                }),
+                comment: comment.map(|s| s.trim().to_owned()),
+            }
         } else if let Ok(parsed) = parse::parse_data_line_continuation.parse(line) {
             let ParsedDataLine {
                 line_addr: _,
@@ -174,10 +243,6 @@ impl Line {
                 data_values: data,
                 comment,
             } = parsed;
-            let comment = match comment {
-                Some(c) if c.len() > 1 => Some(c.trim().to_owned()),
-                _ => None,
-            };
 
             let address = file_state.last_pc;
 
@@ -189,15 +254,21 @@ impl Line {
             }
             file_state.last_pc = lpc;
 
-            let line = Line::Data(Data {
+            Line {
                 address,
-                data,
-                comment,
-                special_type,
-            });
-            (Some(address), line)
+                contents: LineContent::Data(Data {
+                    address,
+                    data,
+                    special_type,
+                }),
+                comment: comment.map(|s| s.trim().to_owned()),
+            }
         } else {
-            (None, Line::Comment(line.trim().to_string()))
+            Line {
+                address: file_state.cur_addr,
+                contents: LineContent::Raw(line.to_owned()),
+                comment: None,
+            }
         }
     }
 }
@@ -207,9 +278,8 @@ fn process_code_line(
     address: Addr,
     opcodes: &[u8],
     logged_addr: Option<(Bank, u16)>,
-    comment: Option<&str>,
     special_type: Option<SpecialParsingType>,
-) -> (Option<Addr>, Line) {
+) -> LineContent {
     let opcode = &OPCODES[&opcodes[0]];
     let operand_size = (opcodes.len() - 1) as u8;
     let raw_operand: u32 = match operand_size {
@@ -227,26 +297,20 @@ fn process_code_line(
         .filter(|(bank, addr)| !matches!((bank, addr), (0x7E, 0x2000..=0x5FFF)))
         .map(|(bank, _)| bank);
 
-    let comment = comment.map(ToOwned::to_owned);
-
     if opcode.name == "BRK" && operand_size == 0 {
-        let data = Data {
+        LineContent::Data(Data {
             address,
             data: vec![DataVal::DB(0)],
-            comment,
             special_type,
-        };
-        (Some(address), Line::Data(data))
+        })
     } else {
-        let code = Code {
+        LineContent::Code(Code {
             address,
             opcode,
             raw_operand,
             operand_size,
-            comment,
             logged_bank,
             instruction_prototype: file_state.prefixed_instruction_directive.take(),
-        };
-        (Some(address), Line::Code(code))
+        })
     }
 }
