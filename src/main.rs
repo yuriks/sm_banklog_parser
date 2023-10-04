@@ -171,7 +171,7 @@ fn parse_files(labels: &mut LabelMap) -> BTreeMap<Bank, Vec<Line>> {
             let line = line.unwrap(); // TODO: Error handling
             let parsed = Line::parse(&line, &mut file_state);
 
-            if let Some(address) = parsed.address {
+            if let Some(address) = parsed.address() {
                 let (bank, _) = split_addr16(address);
                 if (bank < bank_start || bank > bank_end) && parsed.contents.produces_output() {
                     eprintln!(
@@ -288,7 +288,7 @@ fn clone_shared_enemy_ai_library(
         bank_lines.splice(
             insertion_pos..insertion_pos,
             template_lines.iter().cloned().map(|line| {
-                let Some(address) = line.address else {
+                let Some(address) = line.address() else {
                     return line;
                 };
 
@@ -343,7 +343,7 @@ fn write_output_files(banks: &BTreeMap<Bank, Vec<Line>>, config: &Config, labels
         let mut current_addr = Addr::MAX;
 
         for line in bank_lines {
-            if let Some(address) = line.address {
+            if let Some(address) = line.address() {
                 if address != current_addr {
                     current_addr = address;
                     writeln!(output_file, "org ${current_addr:06X}").unwrap();
