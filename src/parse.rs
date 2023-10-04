@@ -96,7 +96,6 @@ pub struct ParsedDataLine<'i> {
     pub line_addr: Addr,
     pub data_type: &'i str,
     pub data_values: Vec<DataVal>,
-    pub comment: Option<&'i str>,
 }
 
 pub fn parse_data_line<'i>(i: &mut &'i str) -> PResult<ParsedDataLine<'i>> {
@@ -105,26 +104,24 @@ pub fn parse_data_line<'i>(i: &mut &'i str) -> PResult<ParsedDataLine<'i>> {
     let data_type = alt(("db", "dw", "dl", "dx", "dW")).parse_next(i)?;
     space1.parse_next(i)?;
     let data_values = data_list.parse_next(i)?;
-    let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
+    space0.parse_next(i)?;
 
     Ok(ParsedDataLine {
         line_addr,
         data_type,
         data_values,
-        comment,
     })
 }
 
 pub fn parse_data_line_continuation<'i>(i: &mut &'i str) -> PResult<ParsedDataLine<'i>> {
     space1.parse_next(i)?;
     let data_values = data_list.parse_next(i)?;
-    let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
+    space0.parse_next(i)?;
 
     Ok(ParsedDataLine {
         line_addr: 0,
         data_type: "",
         data_values,
-        comment,
     })
 }
 
@@ -133,7 +130,6 @@ pub struct ParsedCodeLine<'i> {
     pub instruction_bytes: Vec<u8>,
     pub mnemonic: &'i str,
     pub logged_address: Option<(Option<Bank>, u16)>,
-    pub comment: Option<&'i str>,
 }
 
 pub fn parse_code_line<'i>(i: &mut &'i str) -> PResult<ParsedCodeLine<'i>> {
@@ -151,14 +147,13 @@ pub fn parse_code_line<'i>(i: &mut &'i str) -> PResult<ParsedCodeLine<'i>> {
         }
     }
     let logged_address = opt(preceded(space0, instruction_logged_address)).parse_next(i)?;
-    let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
+    space0.parse_next(i)?;
 
     Ok(ParsedCodeLine {
         line_addr,
         instruction_bytes,
         mnemonic,
         logged_address,
-        comment,
     })
 }
 
@@ -186,24 +181,19 @@ fn instruction_logged_address(i: &mut &str) -> PResult<(Option<Bank>, u16)> {
     delimited('[', pc_address, ']').parse_next(i)
 }
 
-pub fn parse_comment_line<'i>(i: &mut &'i str) -> PResult<&'i str> {
-    preceded(space0, line_comment).parse_next(i)
-}
-
 pub fn parse_bracket_line<'i>(i: &mut &'i str) -> PResult<(char, Option<&'i str>)> {
     let bracket = preceded(space0, alt(('{', '}'))).parse_next(i)?;
     let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
     Ok((bracket, comment))
 }
 
-pub struct ParsedFillToLine<'i> {
+pub struct ParsedFillToLine {
     pub line_addr: Addr,
     pub target: Addr,
     pub fill_byte: u8,
-    pub comment: Option<&'i str>,
 }
 
-pub fn parse_fillto_line<'i>(i: &mut &'i str) -> PResult<ParsedFillToLine<'i>> {
+pub fn parse_fillto_line(i: &mut &str) -> PResult<ParsedFillToLine> {
     let line_addr = pc_prefix.parse_next(i)?;
     delimited(space1, "fillto", space1).parse_next(i)?;
     let (target, fill_byte) = separated_pair(
@@ -212,13 +202,12 @@ pub fn parse_fillto_line<'i>(i: &mut &'i str) -> PResult<ParsedFillToLine<'i>> {
         preceded('$', hex2),
     )
     .parse_next(i)?;
-    let comment = preceded(space0, opt(line_comment)).parse_next(i)?;
+    space0.parse_next(i)?;
 
     Ok(ParsedFillToLine {
         line_addr,
         target: Addr::from(target),
         fill_byte,
-        comment,
     })
 }
 
@@ -290,7 +279,6 @@ mod tests {
                 DL(0xAB_CDEF),
             ]
         );
-        assert_eq!(res.comment, None);
     }
 
     #[test]
@@ -304,7 +292,6 @@ mod tests {
         assert_eq!(res.line_addr, 0x87_8422);
         assert_eq!(res.data_type, "dx");
         assert_eq!(res.data_values, vec![DW(0x000C), DW(0x9524)]);
-        assert_eq!(res.comment, None);
     }
 
     #[test]
@@ -317,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_code_line() {
-        let line = "$82:8CB2 BC 9D 1A    LDY $1A9D,x[$7E:1AAB]  ; Y = [game options menu object spritemap pointer]";
+        let line = "$82:8CB2 BC 9D 1A    LDY $1A9D,x[$7E:1AAB]";
         let res = parse_code_line.parse(line);
 
         let res = res.unwrap();
@@ -325,10 +312,6 @@ mod tests {
         assert_eq!(res.instruction_bytes, vec![0xBC, 0x9D, 0x1A]);
         assert_eq!(res.mnemonic, "LDY");
         assert_eq!(res.logged_address, Some((Some(0x7E), 0x1AAB)));
-        assert_eq!(
-            res.comment,
-            Some(" Y = [game options menu object spritemap pointer]")
-        );
     }
 
     #[test]
@@ -341,12 +324,11 @@ mod tests {
         assert_eq!(res.instruction_bytes, vec![0x6B]);
         assert_eq!(res.mnemonic, "RTL");
         assert_eq!(res.logged_address, None);
-        assert_eq!(res.comment, None);
     }
 
     #[test]
     fn test_code_line_indirect_long_operand() {
-        let line = "$80:801B B7 03       LDA [$03],y[$80:845D]  ;|";
+        let line = "$80:801B B7 03       LDA [$03],y[$80:845D]";
         let res = parse_code_line.parse(line);
 
         let res = res.unwrap();
@@ -354,12 +336,11 @@ mod tests {
         assert_eq!(res.instruction_bytes, vec![0xB7, 0x03]);
         assert_eq!(res.mnemonic, "LDA");
         assert_eq!(res.logged_address, Some((Some(0x80), 0x845D)));
-        assert_eq!(res.comment, Some("|"));
     }
 
     #[test]
     fn test_code_line_indirect_long_jump() {
-        let line = "$82:8D11 DC 01 06    JML [$0601][$88:83E1]  ;|";
+        let line = "$82:8D11 DC 01 06    JML [$0601][$88:83E1]";
         let res = parse_code_line.parse(line);
 
         let res = res.unwrap();
@@ -367,14 +348,13 @@ mod tests {
         assert_eq!(res.instruction_bytes, vec![0xDC, 0x01, 0x06]);
         assert_eq!(res.mnemonic, "JML");
         assert_eq!(res.logged_address, Some((Some(0x88), 0x83E1)));
-        assert_eq!(res.comment, Some("|"));
     }
 
     #[test]
     fn test_code_line_mnemonic_starts_with_hex_digit() {
         // CMP begin with 'C' which is a valid hex digit. This tests that parsing of the instruction
         // bytes will backtrack correctly.
-        let line = "$80:8066 CF 40 21 00 CMP $002140[$7E:2140]  ;|";
+        let line = "$80:8066 CF 40 21 00 CMP $002140[$7E:2140]";
         let res = parse_code_line.parse(line);
 
         let res = res.unwrap();
@@ -382,7 +362,6 @@ mod tests {
         assert_eq!(res.instruction_bytes, vec![0xCF, 0x40, 0x21, 0x00]);
         assert_eq!(res.mnemonic, "CMP");
         assert_eq!(res.logged_address, Some((Some(0x7E), 0x2140)));
-        assert_eq!(res.comment, Some("|"));
     }
 
     #[test]

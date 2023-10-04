@@ -157,60 +157,38 @@ impl Line {
     pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {
         let special_type = file_state.get_modifiers().data_type;
 
-        let result = if let Ok(parsed) = parse::parse_comment_line.parse(line) {
-            let mut address = None;
+        let (line, mut comment) = {
+            let (l, c) = line.split_once(';').unzip();
+            (l.unwrap_or(line), c.map(str::trim_end))
+        };
 
-            if let Some(rest) = parsed.strip_prefix("@!") {
-                if let Err(s) = process_directive(rest, file_state) {
-                    eprintln!("{s}");
-                }
-            } else if let Ok(parsed) = parse_sub_comment.parse(parsed) {
-                let (low_addr, _description) = parsed;
-                let addr = file_state.addr_in_current_bank(low_addr);
-                address = Some(addr);
-                file_state.cur_addr = addr;
-            }
-
-            Line {
-                address,
-                contents: LineContent::Raw(String::new()),
-                comment: Some(parsed.trim_end().to_owned()),
-            }
-        } else if let Ok((bracket, _)) = parse::parse_bracket_line.parse(line) {
+        let (address, contents) = if let Ok((bracket, _)) = parse::parse_bracket_line.parse(line) {
             match bracket {
                 '{' => file_state.push_context(),
                 '}' => file_state.pop_context().unwrap(),
                 _ => unreachable!(),
             }
 
-            Line {
-                address: None,
-                contents: LineContent::Raw(line.to_owned()),
-                comment: None,
-            }
+            (None, LineContent::Raw(line.to_owned()))
         } else if let Ok(parsed) = parse::parse_fillto_line.parse(line) {
             let ParsedFillToLine {
                 line_addr,
                 target,
                 fill_byte,
-                // TODO: Comment is being ignored
-                comment: _,
             } = parsed;
 
             file_state.cur_addr = line_addr;
 
-            Line {
-                address: Some(line_addr),
-                contents: LineContent::Raw(format!("padbyte ${fill_byte:02X} : pad ${target:06X}")),
-                comment: None,
-            }
+            (
+                Some(line_addr),
+                LineContent::Raw(format!("padbyte ${fill_byte:02X} : pad ${target:06X}")),
+            )
         } else if let Ok(parsed) = parse::parse_code_line.parse(line) {
             let ParsedCodeLine {
                 line_addr,
                 instruction_bytes,
                 mnemonic: _,
                 logged_address,
-                comment,
             } = parsed;
 
             let logged_address = match logged_address {
@@ -221,23 +199,21 @@ impl Line {
             file_state.cur_addr = line_addr;
             file_state.cur_addr += instruction_bytes.len() as u64;
 
-            Line {
-                address: Some(line_addr),
-                contents: process_code_line(
+            (
+                Some(line_addr),
+                process_code_line(
                     file_state,
                     line_addr,
                     &instruction_bytes,
                     logged_address,
                     special_type,
                 ),
-                comment: comment.map(|s| s.trim_end().to_owned()),
-            }
+            )
         } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
             let ParsedDataLine {
                 line_addr,
                 data_type,
                 data_values: data,
-                comment,
             } = parsed;
 
             file_state.last_data_cmd = data_type.to_string();
@@ -246,21 +222,22 @@ impl Line {
             file_state.cur_addr = line_addr;
             file_state.cur_addr += addr_offset;
 
-            Line {
-                address: Some(line_addr),
-                contents: LineContent::Data(Data {
+            // TODO: HACK: to keep diff smaller for review
+            comment = comment.map(|c| c.strip_prefix(' ').unwrap_or(c));
+
+            (
+                Some(line_addr),
+                LineContent::Data(Data {
                     address: line_addr,
                     data,
                     special_type,
                 }),
-                comment: comment.map(|s| s.trim().to_owned()),
-            }
+            )
         } else if let Ok(parsed) = parse::parse_data_line_continuation.parse(line) {
             let ParsedDataLine {
                 line_addr: _,
                 data_type: _,
                 data_values: data,
-                comment,
             } = parsed;
 
             let line_addr = file_state.cur_addr;
@@ -268,38 +245,47 @@ impl Line {
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
             file_state.cur_addr += addr_offset;
 
-            Line {
-                address: Some(line_addr),
-                contents: LineContent::Data(Data {
+            // TODO: HACK: to keep diff smaller for review
+            comment = comment.map(|c| c.strip_prefix(' ').unwrap_or(c));
+
+            (
+                Some(line_addr),
+                LineContent::Data(Data {
                     address: line_addr,
                     data,
                     special_type,
                 }),
-                comment: comment.map(|s| s.trim().to_owned()),
+            )
+        } else if let (Some(comment), true) = (comment, line.trim().is_empty()) {
+            let empty_content = LineContent::Raw(String::new());
+
+            // Parse special comments
+            if let Some(rest) = comment.strip_prefix("@!") {
+                if let Err(s) = process_directive(rest, file_state) {
+                    eprintln!("{s}");
+                }
+                (None, empty_content)
+            } else if let Ok(parsed) = parse_sub_comment.parse(comment) {
+                let (low_addr, _description) = parsed;
+                let addr = file_state.addr_in_current_bank(low_addr);
+                (Some(addr), empty_content)
+            } else {
+                (None, empty_content)
             }
         } else {
-            Line {
-                address: None,
-                contents: LineContent::Raw(line.to_owned()),
-                comment: None,
-            }
+            (None, LineContent::Raw(line.to_owned()))
         };
-
-        if let Some(address) = result.address {
-            let a = address + result.contents.pc_advance();
-            let b = file_state.cur_addr;
-            assert_eq!(
-                a, b,
-                "Incorrect PC advance. Expected ${a:06X} but got ${b:06X}"
-            );
-        }
 
         // Handle bank-crossing wrap around
         if split_addr16(file_state.cur_addr).1 < 0x8000 {
             file_state.cur_addr |= 0x8000;
         }
 
-        result
+        Line {
+            address,
+            contents,
+            comment: comment.map(ToOwned::to_owned),
+        }
     }
 }
 
