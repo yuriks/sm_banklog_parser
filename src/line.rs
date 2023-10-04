@@ -17,6 +17,7 @@ pub enum LineContent {
     Empty,
     /// May only be '{' or '}'.
     Bracket(char),
+    SubMarker(Addr, String),
     Data(Data),
     Code(Code),
     FillTo(FillTo),
@@ -32,7 +33,7 @@ pub struct Line {
 impl LineContent {
     pub fn pc_advance(&self) -> u64 {
         match self {
-            LineContent::Empty | LineContent::Bracket(_) => 0,
+            LineContent::Empty | LineContent::Bracket(_) | LineContent::SubMarker(..) => 0,
             LineContent::Data(d) => d.pc_advance(),
             LineContent::Code(c) => c.pc_advance(),
             LineContent::FillTo(f) => f.pc_advance(),
@@ -43,7 +44,7 @@ impl LineContent {
     pub fn produces_output(&self) -> bool {
         match self {
             LineContent::Data(_) | LineContent::Code(_) | LineContent::FillTo(..) => true,
-            LineContent::Empty | LineContent::Bracket(_) => false,
+            LineContent::Empty | LineContent::Bracket(_) | LineContent::SubMarker(..) => false,
         }
     }
 }
@@ -125,6 +126,7 @@ impl Line {
         self.address = Some(address);
         match &mut self.contents {
             LineContent::Empty | LineContent::Bracket(_) => {}
+            LineContent::SubMarker(addr, _) => *addr = address,
             LineContent::Data(data) => data.address = address,
             LineContent::Code(code) => code.address = address,
             LineContent::FillTo(fillto) => fillto.address = address,
@@ -136,7 +138,7 @@ impl Line {
         let add_address_to_comment =
             matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
         let (mut output, extra_lines) = match &self.contents {
-            LineContent::Empty => (String::new(), Vec::new()),
+            LineContent::Empty | LineContent::SubMarker(..) => (String::new(), Vec::new()),
             LineContent::Bracket(c) => (c.to_string(), Vec::new()),
             LineContent::Data(d) => d.to_string(config, labels),
             LineContent::Code(c) => (c.to_string(config, labels), Vec::new()),
@@ -278,18 +280,23 @@ impl Line {
                 }),
             )
         } else if line.trim().is_empty() {
-            let mut addr = None;
+            let mut result = (None, LineContent::Empty);
+
             if let Some(comment) = comment {
                 // Parse special comments
                 if let Ok(parsed) = parse_sub_comment.parse(comment) {
-                    let (low_addr, _description) = parsed;
-                    addr = Some(file_state.addr_in_current_bank(low_addr));
+                    let (low_addr, description) = parsed;
+                    let address = file_state.addr_in_current_bank(low_addr);
+                    result = (
+                        Some(address),
+                        LineContent::SubMarker(address, description.trim().to_owned()),
+                    );
                 } else if let Some(rest) = comment.strip_prefix("@!") {
                     process_directive(rest, file_state).unwrap();
                 }
             }
 
-            (addr, LineContent::Empty)
+            result
         } else {
             panic!("Failed to parse line: {line}");
         };
