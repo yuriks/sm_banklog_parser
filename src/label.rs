@@ -262,10 +262,7 @@ pub fn generate_labels(banks: &BTreeMap<Bank, Vec<Line>>, config: &Config, label
         match &line.contents {
             LineContent::Code(code) => generate_label_for_line_operand(config, labels, code),
             LineContent::Data(data) => generate_labels_for_line_data(config, labels, data),
-            LineContent::Empty
-            | LineContent::Raw(_)
-            | LineContent::Bracket(_)
-            | LineContent::FillTo(_) => {}
+            LineContent::Empty | LineContent::Bracket(_) | LineContent::FillTo(_) => {}
         }
     }
 }

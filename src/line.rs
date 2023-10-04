@@ -15,7 +15,6 @@ use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingTyp
 #[derive(Debug, Clone)]
 pub enum LineContent {
     Empty,
-    Raw(String),
     /// May only be '{' or '}'.
     Bracket(char),
     Data(Data),
@@ -33,7 +32,7 @@ pub struct Line {
 impl LineContent {
     pub fn pc_advance(&self) -> u64 {
         match self {
-            LineContent::Empty | LineContent::Raw(_) | LineContent::Bracket(_) => 0,
+            LineContent::Empty | LineContent::Bracket(_) => 0,
             LineContent::Data(d) => d.pc_advance(),
             LineContent::Code(c) => c.pc_advance(),
             LineContent::FillTo(f) => f.pc_advance(),
@@ -44,7 +43,7 @@ impl LineContent {
     pub fn produces_output(&self) -> bool {
         match self {
             LineContent::Data(_) | LineContent::Code(_) | LineContent::FillTo(..) => true,
-            LineContent::Empty | LineContent::Raw(_) | LineContent::Bracket(_) => false,
+            LineContent::Empty | LineContent::Bracket(_) => false,
         }
     }
 }
@@ -61,6 +60,7 @@ impl FillTo {
         self.target.checked_sub(self.address).unwrap()
     }
 
+    #[allow(clippy::inherent_to_string)] // This should maybe have a better name
     fn to_string(&self) -> String {
         format!("padbyte ${:02X} : pad ${:06X}", self.fill_byte, self.target)
     }
@@ -124,7 +124,7 @@ impl Line {
     pub fn with_address(mut self, address: Addr) -> Line {
         self.address = Some(address);
         match &mut self.contents {
-            LineContent::Empty | LineContent::Raw(_) | LineContent::Bracket(_) => {}
+            LineContent::Empty | LineContent::Bracket(_) => {}
             LineContent::Data(data) => data.address = address,
             LineContent::Code(code) => code.address = address,
             LineContent::FillTo(fillto) => fillto.address = address,
@@ -137,7 +137,6 @@ impl Line {
             matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
         let (mut output, extra_lines) = match &self.contents {
             LineContent::Empty => (String::new(), Vec::new()),
-            LineContent::Raw(s) => (s.trim_end().to_owned(), Vec::new()),
             LineContent::Bracket(c) => (c.to_string(), Vec::new()),
             LineContent::Data(d) => d.to_string(config, labels),
             LineContent::Code(c) => (c.to_string(config, labels), Vec::new()),
@@ -292,7 +291,7 @@ impl Line {
 
             (addr, LineContent::Empty)
         } else {
-            (None, LineContent::Raw(line.to_owned()))
+            panic!("Failed to parse line: {line}");
         };
 
         // Handle bank-crossing wrap around
