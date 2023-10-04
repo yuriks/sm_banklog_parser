@@ -14,9 +14,13 @@ use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingTyp
 
 #[derive(Debug, Clone)]
 pub enum LineContent {
+    Empty,
     Raw(String),
+    /// May only be '{' or '}'.
+    Bracket(char),
     Data(Data),
     Code(Code),
+    FillTo(FillTo),
 }
 
 #[derive(Debug, Clone)]
@@ -29,18 +33,36 @@ pub struct Line {
 impl LineContent {
     pub fn pc_advance(&self) -> u64 {
         match self {
-            LineContent::Raw(_) => 0,
+            LineContent::Empty | LineContent::Raw(_) | LineContent::Bracket(_) => 0,
             LineContent::Data(d) => d.pc_advance(),
             LineContent::Code(c) => c.pc_advance(),
+            LineContent::FillTo(f) => f.pc_advance(),
         }
     }
 
-    /// True if the line emit output bytes. Equivalent to `self.pc_advance() != 0`.
+    /// True if the line emits output bytes.
     pub fn produces_output(&self) -> bool {
         match self {
-            LineContent::Data(_) | LineContent::Code(_) => true,
-            LineContent::Raw(_) => false,
+            LineContent::Data(_) | LineContent::Code(_) | LineContent::FillTo(..) => true,
+            LineContent::Empty | LineContent::Raw(_) | LineContent::Bracket(_) => false,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FillTo {
+    pub address: Addr,
+    pub target: Addr,
+    pub fill_byte: u8,
+}
+
+impl FillTo {
+    fn pc_advance(&self) -> u64 {
+        self.target.checked_sub(self.address).unwrap()
+    }
+
+    fn to_string(&self) -> String {
+        format!("padbyte ${:02X} : pad ${:06X}", self.fill_byte, self.target)
     }
 }
 
@@ -94,7 +116,7 @@ impl Line {
     pub fn new_comment(s: impl Into<String>) -> Line {
         Line {
             address: None,
-            contents: LineContent::Raw(String::new()),
+            contents: LineContent::Empty,
             comment: Some(s.into()),
         }
     }
@@ -102,9 +124,10 @@ impl Line {
     pub fn with_address(mut self, address: Addr) -> Line {
         self.address = Some(address);
         match &mut self.contents {
-            LineContent::Raw(_) => {}
+            LineContent::Empty | LineContent::Raw(_) | LineContent::Bracket(_) => {}
             LineContent::Data(data) => data.address = address,
             LineContent::Code(code) => code.address = address,
+            LineContent::FillTo(fillto) => fillto.address = address,
         };
         self
     }
@@ -113,9 +136,12 @@ impl Line {
         let add_address_to_comment =
             matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
         let (mut output, extra_lines) = match &self.contents {
+            LineContent::Empty => (String::new(), Vec::new()),
             LineContent::Raw(s) => (s.trim_end().to_owned(), Vec::new()),
+            LineContent::Bracket(c) => (c.to_string(), Vec::new()),
             LineContent::Data(d) => d.to_string(config, labels),
             LineContent::Code(c) => (c.to_string(config, labels), Vec::new()),
+            LineContent::FillTo(f) => (f.to_string(), Vec::new()),
         };
 
         let mut it = extra_lines.into_iter();
@@ -167,7 +193,7 @@ impl Line {
                 _ => unreachable!(),
             }
 
-            (None, LineContent::Raw(line.to_owned()))
+            (None, LineContent::Bracket(bracket))
         } else if let Ok(parsed) = parse::parse_fillto_line.parse(line) {
             let ParsedFillToLine {
                 line_addr,
@@ -179,7 +205,11 @@ impl Line {
 
             (
                 Some(line_addr),
-                LineContent::Raw(format!("padbyte ${fill_byte:02X} : pad ${target:06X}")),
+                LineContent::FillTo(FillTo {
+                    address: line_addr,
+                    target,
+                    fill_byte,
+                }),
             )
         } else if let Ok(parsed) = parse::parse_code_line.parse(line) {
             let ParsedCodeLine {
@@ -248,22 +278,19 @@ impl Line {
                     special_type,
                 }),
             )
-        } else if let (Some(comment), true) = (comment, line.trim().is_empty()) {
-            let empty_content = LineContent::Raw(String::new());
-
-            // Parse special comments
-            if let Some(rest) = comment.strip_prefix("@!") {
-                if let Err(s) = process_directive(rest, file_state) {
-                    eprintln!("{s}");
+        } else if line.trim().is_empty() {
+            let mut addr = None;
+            if let Some(comment) = comment {
+                // Parse special comments
+                if let Ok(parsed) = parse_sub_comment.parse(comment) {
+                    let (low_addr, _description) = parsed;
+                    addr = Some(file_state.addr_in_current_bank(low_addr));
+                } else if let Some(rest) = comment.strip_prefix("@!") {
+                    process_directive(rest, file_state).unwrap();
                 }
-                (None, empty_content)
-            } else if let Ok(parsed) = parse_sub_comment.parse(comment) {
-                let (low_addr, _description) = parsed;
-                let addr = file_state.addr_in_current_bank(low_addr);
-                (Some(addr), empty_content)
-            } else {
-                (None, empty_content)
             }
+
+            (addr, LineContent::Empty)
         } else {
             (None, LineContent::Raw(line.to_owned()))
         };

@@ -23,6 +23,7 @@ use regex::Regex;
 use code::Code;
 
 use crate::config::{Config, Override, OverrideAddr};
+use crate::data::Data;
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelName, LabelType};
 use crate::line::{Line, LineContent};
@@ -199,17 +200,18 @@ fn parse_files(labels: &mut LabelMap) -> BTreeMap<Bank, Vec<Line>> {
                 }
             }
 
-            if parsed.address.is_some_and(|addr| is_bulk_data(addr as u32))
-                && parsed.contents.produces_output()
-            {
-                // TODO: Also elide the ascii art comments
-                if !elide_bulk_data {
-                    lines.push(Line::new_comment(" [pjdasm] Bulk data omitted"));
-                    elide_bulk_data = true;
+            match parsed.contents {
+                LineContent::Data(Data { address, .. }) if is_bulk_data(address as u32) => {
+                    // TODO: Also elide the ascii art comments
+                    if !elide_bulk_data {
+                        lines.push(Line::new_comment(" [pjdasm] Bulk data omitted"));
+                        elide_bulk_data = true;
+                    }
                 }
-            } else {
-                lines.push(parsed);
-                elide_bulk_data = false;
+                _ => {
+                    lines.push(parsed);
+                    elide_bulk_data = false;
+                }
             }
         }
 
@@ -239,10 +241,8 @@ fn clone_shared_enemy_ai_library(
         })
         .context("Reference line not found")?;
 
-        let is_open_bracket =
-            |l: &&Line| matches!(&l.contents, LineContent::Raw(s) if s.trim() == "{");
-        let is_close_bracket =
-            |l: &&Line| matches!(&l.contents, LineContent::Raw(s) if s.trim() == "}");
+        let is_open_bracket = |l: &&Line| matches!(&l.contents, LineContent::Bracket('{'));
+        let is_close_bracket = |l: &&Line| matches!(&l.contents, LineContent::Bracket('}'));
 
         it.next()
             .filter(is_open_bracket)
