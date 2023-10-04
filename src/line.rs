@@ -21,7 +21,7 @@ pub enum LineContent {
 
 #[derive(Debug, Clone)]
 pub struct Line {
-    pub address: Addr,
+    pub address: Option<Addr>,
     pub contents: LineContent,
     pub comment: Option<String>,
 }
@@ -91,8 +91,16 @@ fn process_directive(line: &str, file_state: &mut FileParsingState) -> Result<()
 }
 
 impl Line {
+    pub fn new_comment(s: impl Into<String>) -> Line {
+        Line {
+            address: None,
+            contents: LineContent::Raw(String::new()),
+            comment: Some(s.into()),
+        }
+    }
+
     pub fn with_address(mut self, address: Addr) -> Line {
-        self.address = address;
+        self.address = Some(address);
         match &mut self.contents {
             LineContent::Raw(_) => {}
             LineContent::Data(data) => data.address = address,
@@ -128,7 +136,7 @@ impl Line {
             output.push(';');
 
             if add_address_to_comment {
-                write!(output, " ${:06X} |", self.address).unwrap();
+                write!(output, " ${:06X} |", self.address.unwrap()).unwrap();
             }
             if let Some(comment) = self.comment.as_ref().filter(|s| !s.is_empty()) {
                 if add_address_to_comment {
@@ -147,21 +155,20 @@ impl Line {
     }
 
     pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {
-        let prev_address = file_state.cur_addr;
-
         let special_type = file_state.get_modifiers().data_type;
 
-        let mut address = file_state.cur_addr;
-
         let result = if let Ok(parsed) = parse::parse_comment_line.parse(line) {
+            let mut address = None;
+
             if let Some(rest) = parsed.strip_prefix("@!") {
                 if let Err(s) = process_directive(rest, file_state) {
                     eprintln!("{s}");
                 }
             } else if let Ok(parsed) = parse_sub_comment.parse(parsed) {
                 let (low_addr, _description) = parsed;
-                address = file_state.addr_in_current_bank(low_addr);
-                file_state.cur_addr = address;
+                let addr = file_state.addr_in_current_bank(low_addr);
+                address = Some(addr);
+                file_state.cur_addr = addr;
             }
 
             Line {
@@ -177,7 +184,7 @@ impl Line {
             }
 
             Line {
-                address,
+                address: None,
                 contents: LineContent::Raw(line.to_owned()),
                 comment: None,
             }
@@ -190,11 +197,10 @@ impl Line {
                 comment: _,
             } = parsed;
 
-            address = line_addr;
-            file_state.cur_addr = address;
+            file_state.cur_addr = line_addr;
 
             Line {
-                address,
+                address: Some(line_addr),
                 contents: LineContent::Raw(format!("padbyte ${fill_byte:02X} : pad ${target:06X}")),
                 comment: None,
             }
@@ -212,13 +218,11 @@ impl Line {
                 _ => None,
             };
 
-            address = line_addr;
-            file_state.cur_addr = address;
-
+            file_state.cur_addr = line_addr;
             file_state.cur_addr += instruction_bytes.len() as u64;
 
             Line {
-                address,
+                address: Some(line_addr),
                 contents: process_code_line(
                     file_state,
                     line_addr,
@@ -236,17 +240,16 @@ impl Line {
                 comment,
             } = parsed;
 
-            address = line_addr;
-            file_state.cur_addr = address;
-
             file_state.last_data_cmd = data_type.to_string();
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
+
+            file_state.cur_addr = line_addr;
             file_state.cur_addr += addr_offset;
 
             Line {
-                address,
+                address: Some(line_addr),
                 contents: LineContent::Data(Data {
-                    address,
+                    address: line_addr,
                     data,
                     special_type,
                 }),
@@ -260,13 +263,15 @@ impl Line {
                 comment,
             } = parsed;
 
+            let line_addr = file_state.cur_addr;
+
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
             file_state.cur_addr += addr_offset;
 
             Line {
-                address,
+                address: Some(line_addr),
                 contents: LineContent::Data(Data {
-                    address,
+                    address: line_addr,
                     data,
                     special_type,
                 }),
@@ -274,14 +279,14 @@ impl Line {
             }
         } else {
             Line {
-                address,
+                address: None,
                 contents: LineContent::Raw(line.to_owned()),
                 comment: None,
             }
         };
 
-        if result.address == prev_address && file_state.cur_addr != prev_address {
-            let a = prev_address + result.contents.pc_advance();
+        if let Some(address) = result.address {
+            let a = address + result.contents.pc_advance();
             let b = file_state.cur_addr;
             assert_eq!(
                 a, b,
