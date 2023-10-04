@@ -9,6 +9,7 @@
 #![allow(clippy::verbose_bit_mask)]
 #![allow(clippy::items_after_statements)]
 
+use anyhow::{anyhow, Context};
 use std::io::BufWriter;
 use std::{
     collections::BTreeMap,
@@ -17,7 +18,6 @@ use std::{
 };
 
 use glob::glob;
-use itertools::Itertools;
 use regex::Regex;
 
 use code::Code;
@@ -109,7 +109,6 @@ pub struct FileParsingState {
 
     last_data_cmd: String,
     cur_addr: Addr,
-    prev_parsed_addr: Addr,
 }
 
 impl FileParsingState {
@@ -119,7 +118,6 @@ impl FileParsingState {
             prefixed_instruction_directive: None,
             last_data_cmd: String::new(),
             cur_addr: start_addr,
-            prev_parsed_addr: start_addr,
         }
     }
 
@@ -150,7 +148,9 @@ impl FileParsingState {
     }
 }
 
-fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
+fn parse_files(labels: &mut LabelMap) -> BTreeMap<Bank, Vec<Line>> {
+    let mut result = BTreeMap::new();
+
     let filenames = glob("./logs/*.asm").unwrap();
     let filename_regex = Regex::new(r"Bank \$([0-9A-F]{2})(?:\.\.\$([0-9A-F]{2}))?").unwrap();
     for filename in filenames.flatten() {
@@ -162,6 +162,7 @@ fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
 
         let file = BufReader::new(File::open(&filename).unwrap());
         let mut file_state = FileParsingState::new(addr16_with_bank(bank_start, 0x8000));
+        let mut lines = Vec::new();
 
         /* Parse the full file into data */
         for line in file.lines() {
@@ -195,30 +196,87 @@ fn parse_files(lines: &mut BTreeMap<Addr, Vec<Line>>, labels: &mut LabelMap) {
             }
 
             if !is_bulk_data(parsed.address as u32) {
-                lines.entry(parsed.address).or_default().push(parsed);
+                lines.push(parsed);
             }
         }
+
+        result.insert(bank_start, lines);
     }
+
+    result
 }
 
 /// Duplicates the code at the start of bank $A0 to the other enemy banks where its present. This
 /// repeated section is elided in the bank logs.
 fn clone_shared_enemy_ai_library(
-    lines: &mut BTreeMap<Addr, Vec<Line>>,
+    banks: &mut BTreeMap<Bank, Vec<Line>>,
     config: &mut Config,
     labels: &mut LabelMap,
-) {
-    // Can't mutate lines while iterating through it, so accumulate results in temporary Vec
-    let mut new_lines = Vec::new();
+) -> anyhow::Result<()> {
+    // Gather source lines from bank $A0
+    let template_lines: Vec<Line> = {
+        let a0_lines = banks.get(&0xA0).context("Bank $A0 not in input")?;
+        let mut it = a0_lines.iter();
+
+        // Advances iterator until the header line we want
+        it.find(|l| {
+            l.comment
+                .as_ref()
+                .is_some_and(|c| c.starts_with(";; $8000..8686: Common to all enemy banks"))
+        })
+        .context("Reference line not found")?;
+
+        let is_open_bracket =
+            |l: &&Line| matches!(&l.contents, LineContent::Raw(s) if s.trim() == "{");
+        let is_close_bracket =
+            |l: &&Line| matches!(&l.contents, LineContent::Raw(s) if s.trim() == "}");
+
+        it.next()
+            .filter(is_open_bracket)
+            .context("Reference line not followed by {")?;
+
+        let mut nesting_level = 1usize;
+        let result = it
+            .take_while(|l| {
+                if is_open_bracket(l) {
+                    nesting_level += 1;
+                } else if is_close_bracket(l) {
+                    nesting_level -= 1;
+                }
+
+                nesting_level != 0
+            })
+            .cloned()
+            .collect();
+
+        if nesting_level != 0 {
+            return Err(anyhow!("Unclosed bracket"));
+        }
+
+        result
+    };
 
     // Copy enemy banks to respective new bank
-    for (&addr, addr_lines) in lines.range(0xA0_8000..=0xA0_8686) {
-        let enemy_banks = (0xA2u8..=0xAA).chain(0xB2..=0xB3);
-        for bank in enemy_banks {
-            let mut new_addr_lines = Vec::new();
-            let new_addr = addr_with_bank(bank, addr);
+    let enemy_banks = (0xA2u8..=0xAA).chain(0xB2..=0xB3);
+    for bank in enemy_banks {
+        let bank_lines = banks
+            .get_mut(&bank)
+            .with_context(|| format!("Bank ${bank:02X} doesn't exist"))?;
 
-            for line in addr_lines {
+        let insertion_pos = 1 + bank_lines
+            .iter()
+            .position(|l| {
+                l.comment
+                    .as_ref()
+                    .is_some_and(|c| c.trim_start().starts_with("See bank $A0"))
+            })
+            .with_context(|| format!("Target line not found in bank ${bank:02X}"))?;
+
+        bank_lines.splice(
+            insertion_pos..insertion_pos,
+            template_lines.iter().cloned().map(|line| {
+                let new_addr = addr_with_bank(bank, line.address);
+
                 if let LineContent::Code(c) = &line.contents {
                     if let Some(instr_proto) = &c.instruction_prototype {
                         let new_label = Label::new(
@@ -245,16 +303,15 @@ fn clone_shared_enemy_ai_library(
                     }
                 }
 
-                new_addr_lines.push(line.clone().with_address(new_addr));
-            }
-
-            new_lines.push((new_addr, new_addr_lines));
-        }
+                line.with_address(new_addr)
+            }),
+        );
     }
-    lines.extend(new_lines);
+
+    Ok(())
 }
 
-fn write_output_files(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels: &LabelMap) {
+fn write_output_files(banks: &BTreeMap<Bank, Vec<Line>>, config: &Config, labels: &LabelMap) {
     fn create_output_file(path: &str) -> BufWriter<File> {
         BufWriter::new(File::create(format!("./asm/{path}")).unwrap())
     }
@@ -263,31 +320,29 @@ fn write_output_files(lines: &BTreeMap<Addr, Vec<Line>>, config: &Config, labels
     writeln!(main_file, "lorom").unwrap();
     writeln!(main_file, "incsrc labels.asm").unwrap();
 
-    for (bank, bank_addrs) in &lines.iter().group_by(|(&addr, _)| split_addr16(addr).0) {
+    for (bank, bank_lines) in banks {
         let mut output_file = create_output_file(&format!("bank_{bank:02x}.asm"));
         writeln!(main_file, "incsrc bank_{bank:02x}.asm").unwrap();
 
         let mut current_addr = Addr::MAX;
 
-        for (&addr, addr_lines) in bank_addrs {
-            if addr != current_addr {
-                current_addr = addr;
+        for line in bank_lines {
+            if line.address != current_addr {
+                current_addr = line.address;
                 writeln!(output_file, "org ${current_addr:06X}").unwrap();
             }
 
-            let label = labels.get_label_exact(addr);
-
-            for line in addr_lines {
-                let pc_advance = line.contents.pc_advance();
-                if pc_advance != 0 {
-                    if let Some(label) = label {
-                        writeln!(output_file, "{}:", label.name()).unwrap();
-                        label.assigned.set(true);
-                    }
+            let pc_advance = line.contents.pc_advance();
+            if pc_advance != 0 {
+                let label = labels.get_label_exact(line.address);
+                if let Some(label) = label {
+                    writeln!(output_file, "{}:", label.name()).unwrap();
+                    label.assigned.set(true);
                 }
-                writeln!(output_file, "{}", line.to_string(config, labels)).unwrap();
                 current_addr += pc_advance;
             }
+
+            writeln!(output_file, "{}", line.to_string(config, labels)).unwrap();
         }
     }
 
@@ -314,20 +369,19 @@ fn main() {
     let mut config = Config::load("./config/").expect("Failed to read config");
 
     println!("Parsing...");
-    let mut lines = BTreeMap::new();
     let mut labels = LabelMap::new();
-    parse_files(&mut lines, &mut labels);
+    let mut banks = parse_files(&mut labels);
 
     println!("Indexing...");
 
-    clone_shared_enemy_ai_library(&mut lines, &mut config, &mut labels);
+    clone_shared_enemy_ai_library(&mut banks, &mut config, &mut labels).unwrap();
 
     /* Autogenerate labels */
     label::load_labels(&config, &mut labels);
     label::generate_overrides(&mut config, &labels);
     structs::generate_overrides(&mut config, &labels);
-    label::generate_labels(&lines, &config, &mut labels);
+    label::generate_labels(&banks, &config, &mut labels);
 
     println!("Generating...");
-    write_output_files(&lines, &config, &labels);
+    write_output_files(&banks, &config, &labels);
 }
