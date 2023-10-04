@@ -108,7 +108,8 @@ pub struct FileParsingState {
     prefixed_instruction_directive: Option<InstructionPrototype>,
 
     last_data_cmd: String,
-    cur_addr: u64,
+    cur_addr: Addr,
+    prev_parsed_addr: Addr,
 }
 
 impl FileParsingState {
@@ -118,6 +119,7 @@ impl FileParsingState {
             prefixed_instruction_directive: None,
             last_data_cmd: String::new(),
             cur_addr: start_addr,
+            prev_parsed_addr: start_addr,
         }
     }
 

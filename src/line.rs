@@ -148,6 +148,7 @@ impl Line {
 
     pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {
         let prev_address = file_state.cur_addr;
+        let mut advance_prev_addr = true;
 
         let special_type = file_state.get_modifiers().data_type;
 
@@ -171,7 +172,14 @@ impl Line {
         } else if let Ok((bracket, _)) = parse::parse_bracket_line.parse(line) {
             match bracket {
                 '{' => file_state.push_context(),
-                '}' => file_state.pop_context().unwrap(), // TODO: Error handling
+                '}' => {
+                    file_state.pop_context().unwrap(); // TODO: Error handling
+
+                    // Closing brackets should stay attached to the previous line to avoid
+                    // formatting weirdness near file boundaries and other discontinuities.
+                    address = file_state.prev_parsed_addr;
+                    advance_prev_addr = false;
+                }
                 _ => unreachable!(),
             }
 
@@ -287,7 +295,11 @@ impl Line {
                 "Incorrect PC advance. Expected ${a:06X} but got ${b:06X}"
             );
         }
+        if advance_prev_addr {
+            file_state.prev_parsed_addr = prev_address;
+        }
 
+        // Handle bank-crossing wrap around
         if split_addr16(file_state.cur_addr).1 < 0x8000 {
             file_state.cur_addr |= 0x8000;
         }
