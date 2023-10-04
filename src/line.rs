@@ -136,12 +136,10 @@ impl Line {
             output.push(';');
 
             if add_address_to_comment {
-                write!(output, " ${:06X} |", self.address.unwrap()).unwrap();
+                let (bank, low_addr) = split_addr16(self.address.unwrap());
+                write!(output, " ${bank:02X}:{low_addr:04X} ;").unwrap();
             }
             if let Some(comment) = self.comment.as_ref().filter(|s| !s.is_empty()) {
-                if add_address_to_comment {
-                    output.push(' ');
-                }
                 output.push_str(comment);
             }
         }
@@ -157,7 +155,7 @@ impl Line {
     pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {
         let special_type = file_state.get_modifiers().data_type;
 
-        let (line, mut comment) = {
+        let (line, comment) = {
             let (l, c) = line.split_once(';').unzip();
             (l.unwrap_or(line), c.map(str::trim_end))
         };
@@ -222,9 +220,6 @@ impl Line {
             file_state.cur_addr = line_addr;
             file_state.cur_addr += addr_offset;
 
-            // TODO: HACK: to keep diff smaller for review
-            comment = comment.map(|c| c.strip_prefix(' ').unwrap_or(c));
-
             (
                 Some(line_addr),
                 LineContent::Data(Data {
@@ -244,9 +239,6 @@ impl Line {
 
             let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
             file_state.cur_addr += addr_offset;
-
-            // TODO: HACK: to keep diff smaller for review
-            comment = comment.map(|c| c.strip_prefix(' ').unwrap_or(c));
 
             (
                 Some(line_addr),
