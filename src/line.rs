@@ -10,7 +10,7 @@ use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::Opcode;
 use crate::operand::OverrideMap;
-use crate::parse::{ParsedCodeLine, ParsedFillToLine};
+use crate::parse::ParsedCodeLine;
 use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingType};
 
 #[derive(Debug, Clone)]
@@ -46,6 +46,27 @@ impl LineContent {
             LineContent::Data(_) | LineContent::Code(_) | LineContent::FillTo(..) => true,
             LineContent::Empty | LineContent::Bracket(_) | LineContent::SubMarker(..) => false,
         }
+    }
+
+    pub fn address(&self) -> Option<Addr> {
+        match self {
+            LineContent::Empty | LineContent::Bracket(_) => None,
+            LineContent::SubMarker(a, _) => Some(*a),
+            LineContent::Data(d) => Some(d.address),
+            LineContent::Code(c) => Some(c.address),
+            LineContent::FillTo(f) => Some(f.address),
+        }
+    }
+
+    pub fn with_address(mut self, address: Addr) -> LineContent {
+        match &mut self {
+            LineContent::Empty | LineContent::Bracket(_) => {}
+            LineContent::SubMarker(addr, _) => *addr = address,
+            LineContent::Data(data) => data.address = address,
+            LineContent::Code(code) => code.address = address,
+            LineContent::FillTo(fillto) => fillto.address = address,
+        };
+        self
     }
 }
 
@@ -122,23 +143,11 @@ impl Line {
     }
 
     pub fn address(&self) -> Option<Addr> {
-        match &self.contents {
-            LineContent::Empty | LineContent::Bracket(_) => None,
-            LineContent::SubMarker(a, _) => Some(*a),
-            LineContent::Data(d) => Some(d.address),
-            LineContent::Code(c) => Some(c.address),
-            LineContent::FillTo(f) => Some(f.address),
-        }
+        self.contents.address()
     }
 
     pub fn with_address(mut self, address: Addr) -> Line {
-        match &mut self.contents {
-            LineContent::Empty | LineContent::Bracket(_) => {}
-            LineContent::SubMarker(addr, _) => *addr = address,
-            LineContent::Data(data) => data.address = address,
-            LineContent::Code(code) => code.address = address,
-            LineContent::FillTo(fillto) => fillto.address = address,
-        };
+        self.contents = self.contents.with_address(address);
         self
     }
 
@@ -204,18 +213,10 @@ impl Line {
 
             LineContent::Bracket(bracket)
         } else if let Ok(parsed) = parse::parse_fillto_line.parse(line) {
-            let ParsedFillToLine {
-                line_addr,
-                target,
-                fill_byte,
-            } = parsed;
-
-            file_state.cur_addr = line_addr;
-
             LineContent::FillTo(FillTo {
-                address: line_addr,
-                target,
-                fill_byte,
+                address: parsed.line_addr,
+                target: parsed.target,
+                fill_byte: parsed.fill_byte,
             })
         } else if let Ok(parsed) = parse::parse_code_line.parse(line) {
             let ParsedCodeLine {
@@ -230,9 +231,6 @@ impl Line {
                 _ => None,
             };
 
-            file_state.cur_addr = line_addr;
-            file_state.cur_addr += instruction_bytes.len() as Addr;
-
             process_code_line(
                 file_state,
                 line_addr,
@@ -241,28 +239,15 @@ impl Line {
                 special_type,
             )
         } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
-            let address = parsed.line_addr;
-            file_state.cur_addr = address;
-
-            let data = parsed.data_values;
-            let line_len: Addr = data.iter().map(|d| d.length()).sum();
-            file_state.cur_addr += line_len;
-
             LineContent::Data(Data {
-                address,
-                data,
+                address: parsed.line_addr,
+                data: parsed.data_values,
                 special_type,
             })
         } else if let Ok(parsed) = parse::parse_data_line_continuation.parse(line) {
-            let address = file_state.cur_addr;
-
-            let data = parsed.data_values;
-            let line_len: Addr = data.iter().map(|d| d.length()).sum();
-            file_state.cur_addr += line_len;
-
             LineContent::Data(Data {
-                address,
-                data,
+                address: file_state.cur_addr,
+                data: parsed.data_values,
                 special_type,
             })
         } else if line.trim().is_empty() {
@@ -285,11 +270,6 @@ impl Line {
         } else {
             panic!("Failed to parse line: {line}");
         };
-
-        // Handle bank-crossing wrap around
-        if split_addr16(file_state.cur_addr).1 < 0x8000 {
-            file_state.cur_addr |= 0x8000;
-        }
 
         Line {
             contents,

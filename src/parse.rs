@@ -1,19 +1,20 @@
 use winnow::ascii::{hex_uint, space0, space1};
 use winnow::combinator::{
-    alt, cut_err, delimited, eof, iterator, opt, preceded, separated1, separated_pair, terminated,
+    alt, cut_err, delimited, eof, iterator, opt, preceded, repeat, separated1, separated_pair,
+    terminated,
 };
 use winnow::error::{ErrMode, ErrorKind, ParserError};
 use winnow::prelude::*;
-use winnow::stream::{AsChar, ContainsToken, SliceLen, Stream};
+use winnow::stream::{Accumulate, AsChar, ContainsToken, SliceLen, Stream};
 use winnow::token::{one_of, take_till0, take_while};
 use winnow::trace::trace;
 
 use crate::data::DataVal;
 use crate::{addr16_with_bank, Addr, Bank};
 
-pub fn of_length<I: Stream, O, E: ParserError<I>, P: Parser<I, O, E>>(
+pub fn of_length<I: Stream, O, E: ParserError<I>>(
     expected_len: usize,
-    parser: P,
+    parser: impl Parser<I, O, E>,
 ) -> impl Parser<I, O, E>
 where
     I::Slice: SliceLen,
@@ -211,15 +212,9 @@ pub fn parse_fillto_line(i: &mut &str) -> PResult<ParsedFillToLine> {
     })
 }
 
-fn lazy_quantifier<
-    I: Stream,
-    O,
-    E: ParserError<I>,
-    P: ContainsToken<I::Token>,
-    F: Parser<I, O, E>,
->(
-    predicate: P,
-    mut terminator: F,
+fn lazy_quantifier<I: Stream, O, E: ParserError<I>>(
+    predicate: impl ContainsToken<I::Token>,
+    mut terminator: impl Parser<I, O, E>,
 ) -> impl Parser<I, (I::Slice, O), E> {
     move |i: &mut I| {
         let match_start = i.checkpoint();
@@ -251,6 +246,27 @@ pub fn parse_sub_comment<'i>(i: &mut &'i str) -> PResult<(u16, &'i str)> {
     let (description, ()) =
         lazy_quantifier(|_| true, (opt((space0, ";;;")), space0, eof).void()).parse_next(i)?;
     Ok((addr, description))
+}
+
+fn delimited1<I: Stream, S, O, E: ParserError<I>, C: Accumulate<O>>(
+    mut delimiter: impl Parser<I, S, E>,
+    mut between: impl Parser<I, O, E>,
+) -> impl Parser<I, C, E> {
+    trace("delimited1", move |i: &mut I| {
+        let _ = delimiter.parse_next(i)?;
+        repeat(1.., terminated(between.by_ref(), delimiter.by_ref())).parse_next(i)
+    })
+}
+
+pub fn recognize_ascii_art_comment(i: &mut &str) -> PResult<()> {
+    let tile_pixels = alt((
+        "--------", //
+        take_while(8, (' ', '0'..='9', 'A'..='F')),
+    ));
+    let frame = delimited1('|', tile_pixels).map(|()| ());
+    let frame_sequence = separated1(frame, (space1, opt(("=>", space1)))).map(|()| ());
+
+    preceded(space1, frame_sequence).parse_next(i)
 }
 
 #[cfg(test)]
@@ -379,5 +395,18 @@ mod tests {
 
         let res = fancy_comment.parse(";;; test ;;; with more semicolon ;;;  ");
         assert_eq!(res, Ok(("test ;;; with more semicolon", " ;;;  ")));
+    }
+
+    #[test]
+    fn test_ascii_art_comment() {
+        recognize_ascii_art_comment
+            .parse(" |--------|--------|    |--------|--------|    |--------|--------|")
+            .unwrap();
+        recognize_ascii_art_comment
+            .parse(" |8E989ABB|AE88A8EE| => |8E989ABB|AE88A8EE| => |8E989ABB|AE88A8EE|")
+            .unwrap();
+        recognize_ascii_art_comment
+            .parse(" |  B33321|21212121|23232111|             |  B23212|12121212|23322111|")
+            .unwrap();
     }
 }

@@ -15,10 +15,10 @@ use std::mem;
 use anyhow::{anyhow, Context};
 use glob::glob;
 use regex::Regex;
+use winnow::Parser;
 
 use crate::code::Code;
 use crate::config::Config;
-use crate::data::Data;
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelName, LabelType};
 use crate::line::{Line, LineContent};
@@ -72,6 +72,29 @@ fn is_bulk_data(addr: Addr) -> bool {
         0xB6_8000..=0xB6_EFFF => true, // Pause screen tiles/tilemaps
         0xB7_8000..=0xB7_FFFF => true, // More enemy graphics
         0xB9_8000..=0xDF_FFFF => true, // Compressed data & music
+        _ => false,
+    }
+}
+
+fn should_skip_bulk_data(line_addr: Addr, line: &Line, currently_skipping: bool) -> bool {
+    let is_ascii_art_comment = |s| parse::recognize_ascii_art_comment.parse(s).is_ok();
+
+    match line {
+        Line {
+            contents: LineContent::Data(..),
+            ..
+        } if is_bulk_data(line_addr) => true,
+
+        Line {
+            contents: LineContent::Empty,
+            comment: None,
+            ..
+        } if currently_skipping => true,
+
+        Line {
+            comment: Some(c), ..
+        } if is_bulk_data(line_addr) && is_ascii_art_comment(c) => true,
+
         _ => false,
     }
 }
@@ -161,39 +184,49 @@ fn parse_files() -> Banks {
         let file = BufReader::new(File::open(&filename).unwrap());
         let mut file_state = FileParsingState::new(addr16_with_bank(bank_start, 0x8000));
         let mut lines = Vec::new();
-        let mut elide_bulk_data = false;
+        let mut running_bulk_bytes_omitted = 0;
+
+        let emit_bulk_data_summary = |bytes_omitted: &mut Addr, lines: &mut Vec<Line>| {
+            if *bytes_omitted > 0 {
+                lines.push(Line::new_comment(format!(
+                    " ==> [pjdasm] ${bytes_omitted:X} bytes omitted"
+                )));
+                *bytes_omitted = 0;
+            }
+        };
 
         /* Parse the full file into data */
         for line in file.lines() {
             let line = line.unwrap(); // TODO: Error handling
-            let parsed = Line::parse(&line, &mut file_state);
 
-            if let Some(address) = parsed.address() {
-                let (bank, _) = split_addr16(address);
-                if (bank < bank_start || bank > bank_end) && parsed.contents.produces_output() {
-                    eprintln!(
-                        "Line defined outside of the bank range of its file: ${:06X} in `{}`. Line: {:#X?}",
-                        address,
-                        filename.display(),
-                        parsed
-                    );
-                }
+            let parsed = Line::parse(&line, &mut file_state);
+            let line_addr = parsed.address().unwrap_or(file_state.cur_addr);
+            let pc_advance = parsed.contents.pc_advance();
+            file_state.cur_addr = line_addr + pc_advance;
+
+            // Handle bank-crossing wrap around
+            if split_addr16(file_state.cur_addr).1 < 0x8000 {
+                file_state.cur_addr |= 0x8000;
             }
 
-            match parsed.contents {
-                LineContent::Data(Data { address, .. }) if is_bulk_data(address) => {
-                    // TODO: Also elide the ascii art comments
-                    if !elide_bulk_data {
-                        lines.push(Line::new_comment(" [pjdasm] Bulk data omitted"));
-                        elide_bulk_data = true;
-                    }
-                }
-                _ => {
-                    lines.push(parsed);
-                    elide_bulk_data = false;
-                }
+            let (bank, _) = split_addr16(line_addr);
+            if (bank < bank_start || bank > bank_end) && parsed.contents.produces_output() {
+                eprintln!(
+                    "Line defined outside of the bank range of its file: ${:06X} in `{}`. Line: {:#X?}",
+                    line_addr,
+                    filename.display(),
+                    parsed
+                );
+            }
+
+            if should_skip_bulk_data(line_addr, &parsed, running_bulk_bytes_omitted > 0) {
+                running_bulk_bytes_omitted += pc_advance;
+            } else {
+                emit_bulk_data_summary(&mut running_bulk_bytes_omitted, &mut lines);
+                lines.push(parsed);
             }
         }
+        emit_bulk_data_summary(&mut running_bulk_bytes_omitted, &mut lines);
 
         result.insert(bank_start, lines);
     }
