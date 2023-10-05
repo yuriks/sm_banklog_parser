@@ -9,13 +9,13 @@ use serde::Deserialize;
 
 use crate::label::LabelType;
 use crate::operand::{Override, OverrideAddr};
-use crate::Bank;
+use crate::{Addr, Bank};
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct StructField {
     pub name: String,
-    pub offset: u64,
-    pub length: u64,
+    pub offset: Addr,
+    pub length: Addr,
     #[serde(flatten)]
     pub type_: LabelType,
     pub db: Option<Bank>,
@@ -28,7 +28,7 @@ pub struct Struct {
 }
 
 impl Struct {
-    pub fn size(&self) -> u64 {
+    pub fn size(&self) -> Addr {
         let Some(last_field) = self.fields.last() else {
             return 0;
         };

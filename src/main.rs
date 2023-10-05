@@ -36,7 +36,7 @@ mod operand;
 mod parse;
 mod structs;
 
-pub type Addr = u64;
+pub type Addr = u32;
 pub type Bank = u8;
 
 pub(crate) fn addr_with_bank(bank: Bank, addr: Addr) -> Addr {
@@ -55,7 +55,7 @@ pub(crate) fn split_addr16(addr: Addr) -> (Bank, u16) {
     ((addr >> 16) as Bank, (addr & 0xFFFF) as u16)
 }
 
-fn is_bulk_data(addr: u32) -> bool {
+fn is_bulk_data(addr: Addr) -> bool {
     #[allow(clippy::match_same_arms)]
     match addr {
         0x87_8564..=0x87_FFFF => true, // Animated tiles
@@ -109,7 +109,7 @@ pub struct FileParsingState {
 }
 
 impl FileParsingState {
-    fn new(start_addr: u64) -> Self {
+    fn new(start_addr: Addr) -> Self {
         FileParsingState {
             modifier_stack: vec![ParsingModifiers::default()],
             prefixed_instruction_directive: None,
@@ -181,7 +181,7 @@ fn parse_files() -> Banks {
             }
 
             match parsed.contents {
-                LineContent::Data(Data { address, .. }) if is_bulk_data(address as u32) => {
+                LineContent::Data(Data { address, .. }) if is_bulk_data(address) => {
                     // TODO: Also elide the ascii art comments
                     if !elide_bulk_data {
                         lines.push(Line::new_comment(" [pjdasm] Bulk data omitted"));

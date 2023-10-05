@@ -183,14 +183,14 @@ pub struct Label {
     /// Size of data covered by this label. Can be 0, which denotes a location-only label. Labels
     /// with non-0 size may not overlap each other, however, a 0-size label may be contained by
     /// another label. (For example, branch labels inside a subroutine label.)
-    pub length: u64,
+    pub length: Addr,
 
     pub assigned: Cell<bool>,
     external: Cell<bool>,
 }
 
 impl Label {
-    pub fn new(address: Addr, name: LabelName, label_type: LabelType, length: u64) -> Self {
+    pub fn new(address: Addr, name: LabelName, label_type: LabelType, length: Addr) -> Self {
         Label {
             address,
             name,

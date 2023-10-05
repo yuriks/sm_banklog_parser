@@ -421,7 +421,7 @@ impl AddrMode {
                 StaticAddress::DataBank(operand_w)
             }
             AddrMode::AbsoluteLong | AddrMode::AbsoluteLongIndexed => {
-                StaticAddress::Long(u64::from(operand_l))
+                StaticAddress::Long(Addr::from(operand_l))
             }
             AddrMode::CodeAbsolute | AddrMode::AbsoluteIndexedIndirect => {
                 addr_in_bank(program_bank, operand_w)

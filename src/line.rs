@@ -31,7 +31,7 @@ pub struct Line {
 }
 
 impl LineContent {
-    pub fn pc_advance(&self) -> u64 {
+    pub fn pc_advance(&self) -> Addr {
         match self {
             LineContent::Empty | LineContent::Bracket(_) | LineContent::SubMarker(..) => 0,
             LineContent::Data(d) => d.pc_advance(),
@@ -57,7 +57,7 @@ pub struct FillTo {
 }
 
 impl FillTo {
-    fn pc_advance(&self) -> u64 {
+    fn pc_advance(&self) -> Addr {
         self.target.checked_sub(self.address).unwrap()
     }
 
@@ -231,7 +231,7 @@ impl Line {
             };
 
             file_state.cur_addr = line_addr;
-            file_state.cur_addr += instruction_bytes.len() as u64;
+            file_state.cur_addr += instruction_bytes.len() as Addr;
 
             process_code_line(
                 file_state,

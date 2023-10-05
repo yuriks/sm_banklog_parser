@@ -29,15 +29,15 @@ impl DataVal {
         }
     }
 
-    pub fn as_u64(self) -> u64 {
+    pub fn as_u32(self) -> u32 {
         match self {
-            DataVal::DB(b) => u64::from(b),
-            DataVal::DW(w) => u64::from(w),
-            DataVal::DL(l) => u64::from(l),
+            DataVal::DB(b) => u32::from(b),
+            DataVal::DW(w) => u32::from(w),
+            DataVal::DL(l) => l,
         }
     }
 
-    pub fn length(self) -> u64 {
+    pub fn length(self) -> Addr {
         match self {
             DataVal::DB(_) => 1,
             DataVal::DW(_) => 2,
@@ -62,7 +62,7 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn pc_advance(&self) -> u64 {
+    pub fn pc_advance(&self) -> Addr {
         self.data.iter().map(|d| d.length()).sum()
     }
 
@@ -334,7 +334,7 @@ impl Data {
     ) {
         let override_ = overrides.get_override(cur_pc);
         let (type_, label_addr) = get_data_label_address(cur_pc, d, override_);
-        let target = d.as_u64();
+        let target = d.as_u32();
 
         let base = match type_ {
             OperandType::Literal => Some(LabelOrLiteral::Literal(label_addr)),

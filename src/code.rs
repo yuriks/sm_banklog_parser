@@ -26,8 +26,8 @@ pub struct Code {
 }
 
 impl Code {
-    pub fn pc_advance(&self) -> u64 {
-        1 + u64::from(self.operand_size)
+    pub fn pc_advance(&self) -> Addr {
+        1 + Addr::from(self.operand_size)
     }
 
     fn arg_label(&self, overrides: &OverrideMap, labels: &LabelMap) -> Option<String> {
