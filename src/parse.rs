@@ -78,9 +78,8 @@ fn data_atom(i: &mut &str) -> PResult<impl Iterator<Item = DataVal>> {
     })
 }
 
-#[allow(clippy::from_iter_instead_of_collect)]
 fn data_list(i: &mut &str) -> PResult<Vec<DataVal>> {
-    let mut data = Vec::from_iter(data_atom.parse_next(i)?);
+    let mut data: Vec<_> = data_atom.parse_next(i)?.collect();
 
     let mut it = iterator(*i, preceded(delimited(space0, ',', space0), data_atom));
     data.extend(it.flatten());
