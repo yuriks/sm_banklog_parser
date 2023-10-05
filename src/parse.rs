@@ -1,5 +1,3 @@
-use crate::data::DataVal;
-use crate::{addr16_with_bank, Addr, Bank};
 use winnow::ascii::{hex_uint, space0, space1};
 use winnow::combinator::{
     alt, cut_err, delimited, eof, iterator, opt, preceded, separated1, separated_pair, terminated,
@@ -9,6 +7,9 @@ use winnow::prelude::*;
 use winnow::stream::{AsChar, ContainsToken, SliceLen, Stream};
 use winnow::token::{take_till0, take_while};
 use winnow::trace::trace;
+
+use crate::data::DataVal;
+use crate::{addr16_with_bank, Addr, Bank};
 
 pub fn of_length<I: Stream, O, E: ParserError<I>, P: Parser<I, O, E>>(
     expected_len: usize,

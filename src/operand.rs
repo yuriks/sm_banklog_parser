@@ -1,9 +1,11 @@
-use crate::label::Label;
-use crate::{Addr, Bank};
-use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::{Debug, Display};
+
+use serde::Deserialize;
+
+use crate::label::Label;
+use crate::{Addr, Bank};
 
 #[derive(Copy, Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]

@@ -7,20 +7,16 @@
 #![allow(clippy::similar_names)]
 #![allow(clippy::verbose_bit_mask)]
 
-use anyhow::{anyhow, Context};
-use std::io::BufWriter;
-use std::{
-    collections::BTreeMap,
-    fs::File,
-    io::{BufRead, BufReader, Write},
-    mem,
-};
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::mem;
 
+use anyhow::{anyhow, Context};
 use glob::glob;
 use regex::Regex;
 
-use code::Code;
-
+use crate::code::Code;
 use crate::config::Config;
 use crate::data::Data;
 use crate::directives::InstructionPrototype;

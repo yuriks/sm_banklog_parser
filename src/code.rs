@@ -1,11 +1,7 @@
 use crate::label::LabelMap;
-use crate::opcode::StaticAddress;
+use crate::opcode::{AddrMode, Opcode, StaticAddress};
 use crate::operand::{format_address_expression_str, LabelOrLiteral, Override, OverrideMap};
-use crate::{
-    addr16_with_bank,
-    opcode::{AddrMode, Opcode},
-    split_addr, split_addr16, Addr, Bank, InstructionPrototype,
-};
+use crate::{addr16_with_bank, split_addr, split_addr16, Addr, Bank, InstructionPrototype};
 
 fn canonicalize_bank(addr: Addr) -> Bank {
     match split_addr16(addr) {

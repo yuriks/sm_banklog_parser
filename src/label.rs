@@ -8,8 +8,9 @@ use crate::code::Code;
 use crate::data::{get_data_label_address, Data};
 use crate::directives::InstructionPrototype;
 use crate::line::LineContent;
+use crate::opcode::AddrMode;
 use crate::operand::{OperandType, Override, OverrideAddr, OverrideMap};
-use crate::{config, opcode::AddrMode, split_addr, split_addr16, Addr, Banks};
+use crate::{config, split_addr, split_addr16, Addr, Banks};
 
 pub struct LabelMap {
     labels: BTreeMap<Addr, Label>,

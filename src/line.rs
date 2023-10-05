@@ -1,6 +1,7 @@
-use byteorder::{ByteOrder, LittleEndian};
 use std::fmt::Write;
 use std::iter;
+
+use byteorder::{ByteOrder, LittleEndian};
 use winnow::Parser;
 
 use crate::code::Code;
