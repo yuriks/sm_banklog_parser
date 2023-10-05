@@ -1,11 +1,14 @@
-use std::collections::HashMap;
-use std::sync::OnceLock;
+use seq_macro::seq;
 
 use crate::{Addr, Bank};
 
+const OPCODES: [Opcode; 0x100] = seq!(N in 0x0..=0xFF {[
+    #(get_opcode(N),)*
+]});
+
 #[allow(clippy::too_many_lines)]
-fn make_opcode_table() -> HashMap<u8, Opcode> {
-    maplit::hashmap! {
+const fn get_opcode(op: u8) -> Opcode {
+    match op {
         0x00 => Opcode::new(0x00, "BRK", AddrMode::ImmediateByte),
 
         0x61 => Opcode::new(0x61, "ADC", AddrMode::DirectIndexedIndirect),
@@ -124,7 +127,6 @@ fn make_opcode_table() -> HashMap<u8, Opcode> {
         0x83 => Opcode::new(0x83, "STA", AddrMode::StackRelative),
         0x85 => Opcode::new(0x85, "STA", AddrMode::Direct),
         0x87 => Opcode::new(0x87, "STA", AddrMode::DirectIndirectLong),
-        0x89 => Opcode::new(0x89, "STA", AddrMode::Immediate),
         0x8D => Opcode::new(0x8D, "STA", AddrMode::Absolute),
         0x8F => Opcode::new(0x8F, "STA", AddrMode::AbsoluteLong),
         0x91 => Opcode::new(0x91, "STA", AddrMode::DirectIndirectIndexed),
@@ -164,7 +166,7 @@ fn make_opcode_table() -> HashMap<u8, Opcode> {
         0x2C => Opcode::new(0x2C, "BIT", AddrMode::Absolute),
         0x34 => Opcode::new(0x34, "BIT", AddrMode::DirectIndexedX),
         0x3C => Opcode::new(0x3C, "BIT", AddrMode::AbsoluteIndexedX),
-        0x89 => Opcode::new(0x24, "BIT", AddrMode::Immediate),
+        0x89 => Opcode::new(0x89, "BIT", AddrMode::Immediate),
 
         0xE0 => Opcode::new(0xE0, "CPX", AddrMode::Immediate),
         0xE4 => Opcode::new(0xE4, "CPX", AddrMode::Direct),
@@ -274,7 +276,7 @@ fn make_opcode_table() -> HashMap<u8, Opcode> {
         0xE2 => Opcode::new(0xE2, "SEP", AddrMode::ImmediateByte),
 
         0x40 => Opcode::new(0x40, "RTI", AddrMode::Implied),
-        0x6B => Opcode::new(0x4B, "RTL", AddrMode::Implied),
+        0x6B => Opcode::new(0x6B, "RTL", AddrMode::Implied),
         0x60 => Opcode::new(0x60, "RTS", AddrMode::Implied),
 
         0x38 => Opcode::new(0x38, "SEC", AddrMode::Implied),
@@ -306,7 +308,12 @@ fn make_opcode_table() -> HashMap<u8, Opcode> {
         0x42 => Opcode::new(0x42, "WDM", AddrMode::ImmediateByte),
 
         0xEB => Opcode::new(0xEB, "XBA", AddrMode::Implied),
-        0xFB => Opcode::new(0xDB, "XCE", AddrMode::Implied),
+        0xFB => Opcode::new(0xFB, "XCE", AddrMode::Implied),
+
+        // RustRover reports a false positive error without this:
+        // "The `match` expression does not cover all possible cases [E0004]"
+        #[allow(unreachable_patterns)]
+        _ => unreachable!(),
     }
 }
 
@@ -434,7 +441,7 @@ pub struct Opcode {
 }
 
 impl Opcode {
-    fn new(opcode: u8, name: &'static str, addr_mode: AddrMode) -> Self {
+    const fn new(opcode: u8, name: &'static str, addr_mode: AddrMode) -> Self {
         Self {
             opcode,
             name,
@@ -443,7 +450,23 @@ impl Opcode {
     }
 
     pub fn get(op_byte: u8) -> &'static Opcode {
-        static OPCODES: OnceLock<HashMap<u8, Opcode>> = OnceLock::new();
-        &OPCODES.get_or_init(make_opcode_table)[&op_byte]
+        &OPCODES[op_byte as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Opcode;
+
+    #[test]
+    fn test_opcode_get() {
+        // Check that every opcode is at its correct index
+        for i in 0..=u8::MAX {
+            let op = Opcode::get(i);
+            assert_eq!(
+                i, op.opcode,
+                "Opcode table op byte mismatch: [{i:#X}] = {op:X?}"
+            );
+        }
     }
 }
