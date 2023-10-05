@@ -7,9 +7,9 @@ use serde::Deserialize;
 use crate::code::Code;
 use crate::data::{get_data_label_address, Data};
 use crate::directives::InstructionPrototype;
-use crate::line::{Line, LineContent};
+use crate::line::LineContent;
 use crate::operand::{OperandType, Override, OverrideAddr, OverrideMap};
-use crate::{config, opcode::AddrMode, split_addr, split_addr16, Addr, Bank};
+use crate::{config, opcode::AddrMode, split_addr, split_addr16, Addr, Banks};
 
 pub struct LabelMap {
     labels: BTreeMap<Addr, Label>,
@@ -258,11 +258,7 @@ impl From<config::Label> for Label {
     }
 }
 
-pub fn generate_labels(
-    labels: &mut LabelMap,
-    banks: &BTreeMap<Bank, Vec<Line>>,
-    overrides: &OverrideMap,
-) {
+pub fn generate_labels(labels: &mut LabelMap, banks: &Banks, overrides: &OverrideMap) {
     for line in banks.values().flatten() {
         match &line.contents {
             LineContent::Code(code) => generate_label_for_line_operand(overrides, labels, code),

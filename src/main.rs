@@ -152,7 +152,9 @@ impl FileParsingState {
     }
 }
 
-fn parse_files(labels: &mut LabelMap) -> BTreeMap<Bank, Vec<Line>> {
+type Banks = BTreeMap<Bank, Vec<Line>>;
+
+fn parse_files(labels: &mut LabelMap) -> Banks {
     let mut result = BTreeMap::new();
 
     let filenames = glob("./logs/*.asm").unwrap();
@@ -227,7 +229,7 @@ fn parse_files(labels: &mut LabelMap) -> BTreeMap<Bank, Vec<Line>> {
 /// Duplicates the code at the start of bank $A0 to the other enemy banks where its present. This
 /// repeated section is elided in the bank logs.
 fn clone_shared_enemy_ai_library(
-    banks: &mut BTreeMap<Bank, Vec<Line>>,
+    banks: &mut Banks,
     overrides: &mut OverrideMap,
     labels: &mut LabelMap,
 ) -> anyhow::Result<()> {
@@ -330,11 +332,7 @@ fn clone_shared_enemy_ai_library(
     Ok(())
 }
 
-fn write_output_files(
-    banks: &BTreeMap<Bank, Vec<Line>>,
-    overrides: &OverrideMap,
-    labels: &LabelMap,
-) {
+fn write_output_files(banks: &Banks, overrides: &OverrideMap, labels: &LabelMap) {
     fn create_output_file(path: &str) -> BufWriter<File> {
         BufWriter::new(File::create(format!("./asm/{path}")).unwrap())
     }
