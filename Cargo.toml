@@ -5,7 +5,7 @@ edition = "2021"
 
 [profile.release]
 # Helpful for profiling and backtraces
-debug = "limited"
+debug = "full"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
