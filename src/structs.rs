@@ -1,7 +1,8 @@
-use crate::config::{Config, OperandType, Override, OverrideAddr};
+use crate::config::Config;
 use crate::label::{LabelMap, LabelType};
+use crate::operand::{OperandType, Override, OverrideAddr, OverrideMap};
 
-pub fn generate_overrides(config: &mut Config, labels: &LabelMap) {
+pub fn generate_overrides(overrides: &mut OverrideMap, config: &Config, labels: &LabelMap) {
     let mut new_overrides = Vec::new();
     for label in labels.iter_labels() {
         let (name, is_table) = match &label.label_type {
@@ -73,6 +74,6 @@ pub fn generate_overrides(config: &mut Config, labels: &LabelMap) {
     }
 
     for o in new_overrides {
-        config.add_override(o);
+        overrides.add_override(o);
     }
 }

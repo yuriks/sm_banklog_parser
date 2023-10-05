@@ -4,11 +4,11 @@ use std::iter;
 use winnow::Parser;
 
 use crate::code::Code;
-use crate::config::Config;
 use crate::data::{Data, DataVal};
 use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::OPCODES;
+use crate::operand::OverrideMap;
 use crate::parse::{parse_sub_comment, ParsedCodeLine, ParsedDataLine, ParsedFillToLine};
 use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingType};
 
@@ -141,14 +141,14 @@ impl Line {
         self
     }
 
-    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
+    pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> String {
         let add_address_to_comment =
             matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
         let (mut output, extra_lines) = match &self.contents {
             LineContent::Empty | LineContent::SubMarker(..) => (String::new(), Vec::new()),
             LineContent::Bracket(c) => (c.to_string(), Vec::new()),
-            LineContent::Data(d) => d.to_string(config, labels),
-            LineContent::Code(c) => (c.to_string(config, labels), Vec::new()),
+            LineContent::Data(d) => d.to_string(overrides, labels),
+            LineContent::Code(c) => (c.to_string(overrides, labels), Vec::new()),
             LineContent::FillTo(f) => (f.to_string(), Vec::new()),
         };
 

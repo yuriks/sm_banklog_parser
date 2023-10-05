@@ -1,8 +1,10 @@
 use std::fmt::Write;
 
-use crate::config::{Config, OperandType, Override};
 use crate::directives::InstructionPrototype;
-use crate::label::{format_address_expression, LabelMap, LabelOrLiteral, LabelType};
+use crate::label::{LabelMap, LabelType};
+use crate::operand::{
+    format_address_expression, LabelOrLiteral, OperandType, Override, OverrideMap,
+};
 use crate::{addr16_with_bank, split_addr16, Addr, SpecialParsingType};
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
@@ -234,7 +236,7 @@ impl Data {
         Ok(result)
     }
 
-    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> (String, Vec<String>) {
+    pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> (String, Vec<String>) {
         fn indent_vec(mut v: Vec<String>) -> Vec<String> {
             for s in &mut v {
                 s.insert_str(0, "    ");
@@ -265,7 +267,7 @@ impl Data {
                     special_type: None,
                     ..self.clone()
                 }
-                .to_string(config, labels);
+                .to_string(overrides, labels);
 
                 if !original_output.0.is_empty() {
                     output_lines.push(original_output.0);
@@ -311,7 +313,7 @@ impl Data {
                         output.push(',');
                     }
 
-                    self.emit_data_atom(config, labels, cur_pc, &mut output, *d);
+                    self.emit_data_atom(overrides, labels, cur_pc, &mut output, *d);
 
                     first_val = false;
                     cur_pc += data_len;
@@ -324,13 +326,13 @@ impl Data {
 
     fn emit_data_atom(
         &self,
-        config: &Config,
+        overrides: &OverrideMap,
         labels: &LabelMap,
         cur_pc: Addr,
         output: &mut String,
         d: DataVal,
     ) {
-        let override_ = config.get_override(cur_pc);
+        let override_ = overrides.get_override(cur_pc);
         let (type_, label_addr) = get_data_label_address(cur_pc, d, override_);
         let target = d.as_u64();
 

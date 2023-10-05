@@ -15,6 +15,7 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::{BufRead, BufReader, Write},
+    mem,
 };
 
 use glob::glob;
@@ -22,12 +23,13 @@ use regex::Regex;
 
 use code::Code;
 
-use crate::config::{Config, Override, OverrideAddr};
+use crate::config::Config;
 use crate::data::Data;
 use crate::directives::InstructionPrototype;
 use crate::label::{Label, LabelMap, LabelName, LabelType};
 use crate::line::{Line, LineContent};
 use crate::opcode::StaticAddress;
+use crate::operand::{Override, OverrideAddr, OverrideMap};
 
 mod code;
 mod config;
@@ -36,6 +38,7 @@ mod directives;
 mod label;
 mod line;
 mod opcode;
+mod operand;
 mod parse;
 mod structs;
 
@@ -225,7 +228,7 @@ fn parse_files(labels: &mut LabelMap) -> BTreeMap<Bank, Vec<Line>> {
 /// repeated section is elided in the bank logs.
 fn clone_shared_enemy_ai_library(
     banks: &mut BTreeMap<Bank, Vec<Line>>,
-    config: &mut Config,
+    overrides: &mut OverrideMap,
     labels: &mut LabelMap,
 ) -> anyhow::Result<()> {
     // Gather source lines from bank $A0
@@ -311,7 +314,7 @@ fn clone_shared_enemy_ai_library(
                         if let Some(0xA0) =
                             c.get_operand_label_address(None).map(|a| split_addr16(a).0)
                         {
-                            config.add_override(Override {
+                            overrides.add_override(Override {
                                 db: Some(0xA0),
                                 ..Override::new(OverrideAddr::Address(new_addr))
                             });
@@ -327,7 +330,11 @@ fn clone_shared_enemy_ai_library(
     Ok(())
 }
 
-fn write_output_files(banks: &BTreeMap<Bank, Vec<Line>>, config: &Config, labels: &LabelMap) {
+fn write_output_files(
+    banks: &BTreeMap<Bank, Vec<Line>>,
+    overrides: &OverrideMap,
+    labels: &LabelMap,
+) {
     fn create_output_file(path: &str) -> BufWriter<File> {
         BufWriter::new(File::create(format!("./asm/{path}")).unwrap())
     }
@@ -360,7 +367,7 @@ fn write_output_files(banks: &BTreeMap<Bank, Vec<Line>>, config: &Config, labels
                 }
             }
 
-            writeln!(output_file, "{}", line.to_string(config, labels)).unwrap();
+            writeln!(output_file, "{}", line.to_string(overrides, labels)).unwrap();
         }
     }
 
@@ -385,21 +392,18 @@ fn write_output_files(banks: &BTreeMap<Bank, Vec<Line>>, config: &Config, labels
 
 fn main() {
     let mut config = Config::load("./config/").expect("Failed to read config");
+    let mut overrides = OverrideMap::from_config(mem::take(&mut config.overrides));
+    let mut labels = LabelMap::from_config(mem::take(&mut config.labels));
 
     println!("Parsing...");
-    let mut labels = LabelMap::new();
     let mut banks = parse_files(&mut labels);
 
     println!("Indexing...");
-
-    clone_shared_enemy_ai_library(&mut banks, &mut config, &mut labels).unwrap();
-
-    /* Autogenerate labels */
-    label::load_labels(&config, &mut labels);
-    label::generate_overrides(&mut config, &labels);
-    structs::generate_overrides(&mut config, &labels);
-    label::generate_labels(&banks, &config, &mut labels);
+    clone_shared_enemy_ai_library(&mut banks, &mut overrides, &mut labels).unwrap();
+    label::generate_overrides(&mut overrides, &labels);
+    structs::generate_overrides(&mut overrides, &config, &labels);
+    label::generate_labels(&mut labels, &banks, &overrides);
 
     println!("Generating...");
-    write_output_files(&banks, &config, &labels);
+    write_output_files(&banks, &overrides, &labels);
 }

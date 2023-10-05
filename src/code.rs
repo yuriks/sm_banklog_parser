@@ -1,9 +1,8 @@
-use crate::config::Override;
-use crate::label::{format_address_expression_str, LabelMap, LabelOrLiteral};
+use crate::label::LabelMap;
 use crate::opcode::StaticAddress;
+use crate::operand::{format_address_expression_str, LabelOrLiteral, Override, OverrideMap};
 use crate::{
     addr16_with_bank,
-    config::Config,
     opcode::{AddrMode, Opcode},
     split_addr, split_addr16, Addr, Bank, InstructionPrototype,
 };
@@ -35,7 +34,7 @@ impl Code {
         1 + u64::from(self.operand_size)
     }
 
-    fn arg_label(&self, config: &Config, labels: &LabelMap) -> Option<String> {
+    fn arg_label(&self, overrides: &OverrideMap, labels: &LabelMap) -> Option<String> {
         let operand_value = self.get_operand();
         let target = match operand_value {
             StaticAddress::None => return None,
@@ -49,7 +48,7 @@ impl Code {
             }
         };
 
-        let override_ = config.get_override(self.address);
+        let override_ = overrides.get_override(self.address);
         let label_addr = self.get_operand_label_address(override_);
 
         let disallow_fuzzy = self.opcode.addr_mode == AddrMode::PcRelative
@@ -146,9 +145,9 @@ impl Code {
 
     //noinspection IncorrectFormatting
     #[allow(clippy::match_same_arms)]
-    pub fn to_string(&self, config: &Config, labels: &LabelMap) -> String {
+    pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> String {
         let op = self.opcode.name;
-        let arg = self.arg_label(config, labels).unwrap_or_default();
+        let arg = self.arg_label(overrides, labels).unwrap_or_default();
         #[rustfmt::skip]
         let result = match self.opcode.addr_mode {
             AddrMode::Absolute
