@@ -8,7 +8,7 @@ use crate::code::Code;
 use crate::data::{Data, DataVal};
 use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
-use crate::opcode::OPCODES;
+use crate::opcode::Opcode;
 use crate::operand::OverrideMap;
 use crate::parse::{parse_sub_comment, ParsedCodeLine, ParsedDataLine, ParsedFillToLine};
 use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingType};
@@ -315,7 +315,7 @@ fn process_code_line(
     logged_addr: Option<(Bank, u16)>,
     special_type: Option<SpecialParsingType>,
 ) -> LineContent {
-    let opcode = &OPCODES[&opcodes[0]];
+    let opcode = Opcode::get(opcodes[0]);
     let operand_size = (opcodes.len() - 1) as u8;
     let raw_operand: u32 = match operand_size {
         0 => 0,

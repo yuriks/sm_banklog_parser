@@ -10,7 +10,6 @@ debug = "full"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = "1.4.0"
 maplit = "1.0.2"
 regex = "1.5.4"
 byteorder = "1.4.3"

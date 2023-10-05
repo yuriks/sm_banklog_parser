@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-
-use lazy_static::lazy_static;
+use std::sync::OnceLock;
 
 use crate::{Addr, Bank};
 
-lazy_static! {
-    pub static ref OPCODES: HashMap<u8, Opcode> = maplit::hashmap! {
+#[allow(clippy::too_many_lines)]
+fn make_opcode_table() -> HashMap<u8, Opcode> {
+    maplit::hashmap! {
         0x00 => Opcode::new(0x00, "BRK", AddrMode::ImmediateByte),
 
         0x61 => Opcode::new(0x61, "ADC", AddrMode::DirectIndexedIndirect),
@@ -306,8 +306,8 @@ lazy_static! {
         0x42 => Opcode::new(0x42, "WDM", AddrMode::ImmediateByte),
 
         0xEB => Opcode::new(0xEB, "XBA", AddrMode::Implied),
-        0xFB => Opcode::new(0xDB, "XCE", AddrMode::Implied)
-    };
+        0xFB => Opcode::new(0xDB, "XCE", AddrMode::Implied),
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -440,5 +440,10 @@ impl Opcode {
             name,
             addr_mode,
         }
+    }
+
+    pub fn get(op_byte: u8) -> &'static Opcode {
+        static OPCODES: OnceLock<HashMap<u8, Opcode>> = OnceLock::new();
+        &OPCODES.get_or_init(make_opcode_table)[&op_byte]
     }
 }
