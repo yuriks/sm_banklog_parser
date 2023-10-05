@@ -10,7 +10,7 @@ use crate::directives::{parse_instruction_prototype, InstructionPrototype};
 use crate::label::LabelMap;
 use crate::opcode::Opcode;
 use crate::operand::OverrideMap;
-use crate::parse::{parse_sub_comment, ParsedCodeLine, ParsedDataLine, ParsedFillToLine};
+use crate::parse::{ParsedCodeLine, ParsedFillToLine};
 use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingType};
 
 #[derive(Debug, Clone)]
@@ -241,37 +241,27 @@ impl Line {
                 special_type,
             )
         } else if let Ok(parsed) = parse::parse_data_line.parse(line) {
-            let ParsedDataLine {
-                line_addr,
-                data_type,
-                data_values: data,
-            } = parsed;
+            let address = parsed.line_addr;
+            file_state.cur_addr = address;
 
-            file_state.last_data_cmd = data_type.to_string();
-            let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
-
-            file_state.cur_addr = line_addr;
-            file_state.cur_addr += addr_offset;
+            let data = parsed.data_values;
+            let line_len: Addr = data.iter().map(|d| d.length()).sum();
+            file_state.cur_addr += line_len;
 
             LineContent::Data(Data {
-                address: line_addr,
+                address,
                 data,
                 special_type,
             })
         } else if let Ok(parsed) = parse::parse_data_line_continuation.parse(line) {
-            let ParsedDataLine {
-                line_addr: _,
-                data_type: _,
-                data_values: data,
-            } = parsed;
+            let address = file_state.cur_addr;
 
-            let line_addr = file_state.cur_addr;
-
-            let addr_offset: u64 = data.iter().map(|d| d.length()).sum();
-            file_state.cur_addr += addr_offset;
+            let data = parsed.data_values;
+            let line_len: Addr = data.iter().map(|d| d.length()).sum();
+            file_state.cur_addr += line_len;
 
             LineContent::Data(Data {
-                address: line_addr,
+                address,
                 data,
                 special_type,
             })
@@ -280,7 +270,7 @@ impl Line {
 
             if let Some(comment) = comment {
                 // Parse special comments
-                if let Ok(parsed) = parse_sub_comment.parse(comment) {
+                if let Ok(parsed) = parse::parse_sub_comment.parse(comment) {
                     let (low_addr, description) = parsed;
                     result = LineContent::SubMarker(
                         file_state.addr_in_current_bank(low_addr),

@@ -105,7 +105,6 @@ pub struct FileParsingState {
     modifier_stack: Vec<ParsingModifiers>,
     prefixed_instruction_directive: Option<InstructionPrototype>,
 
-    last_data_cmd: String,
     cur_addr: Addr,
 }
 
@@ -114,7 +113,6 @@ impl FileParsingState {
         FileParsingState {
             modifier_stack: vec![ParsingModifiers::default()],
             prefixed_instruction_directive: None,
-            last_data_cmd: String::new(),
             cur_addr: start_addr,
         }
     }

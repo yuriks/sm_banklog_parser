@@ -5,7 +5,7 @@ use winnow::combinator::{
 use winnow::error::{ErrMode, ErrorKind, ParserError};
 use winnow::prelude::*;
 use winnow::stream::{AsChar, ContainsToken, SliceLen, Stream};
-use winnow::token::{take_till0, take_while};
+use winnow::token::{one_of, take_till0, take_while};
 use winnow::trace::trace;
 
 use crate::data::DataVal;
@@ -92,16 +92,16 @@ fn data_list(i: &mut &str) -> PResult<Vec<DataVal>> {
     Ok(data)
 }
 
-pub struct ParsedDataLine<'i> {
+pub struct ParsedDataLine {
     pub line_addr: Addr,
-    pub data_type: &'i str,
+    pub data_type: char,
     pub data_values: Vec<DataVal>,
 }
 
-pub fn parse_data_line<'i>(i: &mut &'i str) -> PResult<ParsedDataLine<'i>> {
+pub fn parse_data_line(i: &mut &str) -> PResult<ParsedDataLine> {
     let line_addr = terminated(pc_prefix, opt(spc_pc_prefix)).parse_next(i)?;
     space1.parse_next(i)?;
-    let data_type = alt(("db", "dw", "dl", "dx", "dW")).parse_next(i)?;
+    let data_type = preceded('d', one_of(['b', 'w', 'l', 'x'])).parse_next(i)?;
     space1.parse_next(i)?;
     let data_values = data_list.parse_next(i)?;
     space0.parse_next(i)?;
@@ -113,14 +113,14 @@ pub fn parse_data_line<'i>(i: &mut &'i str) -> PResult<ParsedDataLine<'i>> {
     })
 }
 
-pub fn parse_data_line_continuation<'i>(i: &mut &'i str) -> PResult<ParsedDataLine<'i>> {
+pub fn parse_data_line_continuation(i: &mut &str) -> PResult<ParsedDataLine> {
     space1.parse_next(i)?;
     let data_values = data_list.parse_next(i)?;
     space0.parse_next(i)?;
 
     Ok(ParsedDataLine {
         line_addr: 0,
-        data_type: "",
+        data_type: '_',
         data_values,
     })
 }
@@ -266,7 +266,7 @@ mod tests {
 
         let res = res.unwrap();
         assert_eq!(res.line_addr, 0xA0_CF7F);
-        assert_eq!(res.data_type, "dx");
+        assert_eq!(res.data_type, 'x');
         assert_eq!(
             res.data_values,
             vec![
@@ -290,7 +290,7 @@ mod tests {
 
         let res = res.unwrap();
         assert_eq!(res.line_addr, 0x87_8422);
-        assert_eq!(res.data_type, "dx");
+        assert_eq!(res.data_type, 'x');
         assert_eq!(res.data_values, vec![DW(0x000C), DW(0x9524)]);
     }
 
