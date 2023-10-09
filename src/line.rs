@@ -152,20 +152,22 @@ impl Line {
     }
 
     pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> String {
+        fn single(s: String) -> (String, std::vec::IntoIter<String>) {
+            (s, Vec::new().into_iter())
+        }
+
         let add_address_to_comment =
             matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
         let (mut output, extra_lines) = match &self.contents {
-            LineContent::Empty | LineContent::SubMarker(..) => (String::new(), Vec::new()),
-            LineContent::Bracket(c) => (c.to_string(), Vec::new()),
-            LineContent::Data(d) => d.to_string(overrides, labels),
-            LineContent::Code(c) => (c.to_string(overrides, labels), Vec::new()),
-            LineContent::FillTo(f) => (f.to_string(), Vec::new()),
+            LineContent::Empty | LineContent::SubMarker(..) => single(String::new()),
+            LineContent::Bracket(c) => single(c.to_string()),
+            LineContent::Data(d) => {
+                let mut it = d.to_string(overrides, labels).into_iter();
+                (it.next().unwrap_or_default(), it)
+            }
+            LineContent::Code(c) => single(c.to_string(overrides, labels)),
+            LineContent::FillTo(f) => single(f.to_string()),
         };
-
-        let mut it = extra_lines.into_iter();
-        if output.is_empty() {
-            output = it.next().unwrap_or_default();
-        }
 
         fn pad_to_width(width: usize, s: &mut String) {
             let padding_needed = width.saturating_sub(s.chars().count());
@@ -188,7 +190,7 @@ impl Line {
             }
         }
 
-        for line in it {
+        for line in extra_lines {
             output.push('\n');
             output.push_str(&line);
         }

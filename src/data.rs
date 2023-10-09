@@ -236,7 +236,7 @@ impl Data {
         Ok(result)
     }
 
-    pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> (String, Vec<String>) {
+    pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> Vec<String> {
         fn indent_vec(mut v: Vec<String>) -> Vec<String> {
             for s in &mut v {
                 s.insert_str(0, "    ");
@@ -247,33 +247,27 @@ impl Data {
         let mut cur_pc = self.address;
 
         match self.special_type {
-            Some(SpecialParsingType::Spritemap) => (
-                String::new(),
-                indent_vec(self.generate_spritemap().expect("invalid spritemap data")),
-            ),
-            Some(SpecialParsingType::SpritemapRaw) => (
-                String::new(),
-                indent_vec(
-                    self.generate_raw_spritemap()
-                        .expect("invalid spritemap data"),
-                ),
+            Some(SpecialParsingType::Spritemap) => {
+                indent_vec(self.generate_spritemap().expect("invalid spritemap data"))
+            }
+            Some(SpecialParsingType::SpritemapRaw) => indent_vec(
+                self.generate_raw_spritemap()
+                    .expect("invalid spritemap data"),
             ),
             Some(SpecialParsingType::InstructionList) => {
                 let mut output_lines = indent_vec(
                     self.generate_instruction_list(labels)
                         .expect("invalid instruction list data"),
                 );
+
                 let original_output = Data {
                     special_type: None,
                     ..self.clone()
                 }
                 .to_string(overrides, labels);
+                output_lines.extend(original_output);
 
-                if !original_output.0.is_empty() {
-                    output_lines.push(original_output.0);
-                }
-                output_lines.extend(original_output.1);
-                (String::new(), output_lines)
+                output_lines
             }
             Some(_) => unimplemented!(),
             None => {
@@ -319,7 +313,7 @@ impl Data {
                     cur_pc += data_len;
                 }
 
-                (output, Vec::new())
+                vec![output]
             }
         }
     }
