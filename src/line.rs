@@ -1,6 +1,3 @@
-use std::fmt::Write;
-use std::iter;
-
 use byteorder::{ByteOrder, LittleEndian};
 use winnow::Parser;
 
@@ -11,7 +8,7 @@ use crate::label::LabelMap;
 use crate::opcode::Opcode;
 use crate::operand::OverrideMap;
 use crate::parse::ParsedCodeLine;
-use crate::{parse, split_addr16, Addr, Bank, FileParsingState, SpecialParsingType};
+use crate::{parse, Addr, Bank, FileParsingState, SpecialParsingType};
 
 #[derive(Debug, Clone)]
 pub enum LineContent {
@@ -152,50 +149,13 @@ impl Line {
     }
 
     pub fn to_string(&self, overrides: &OverrideMap, labels: &LabelMap) -> String {
-        fn single(s: String) -> (String, std::vec::IntoIter<String>) {
-            (s, Vec::new().into_iter())
+        match &self.contents {
+            LineContent::Empty | LineContent::SubMarker(..) => String::new(),
+            LineContent::Bracket(c) => c.to_string(),
+            LineContent::Data(d) => d.to_string(overrides, labels).join("\n"),
+            LineContent::Code(c) => c.to_string(overrides, labels),
+            LineContent::FillTo(f) => f.to_string(),
         }
-
-        let add_address_to_comment =
-            matches!(self.contents, LineContent::Data(_) | LineContent::Code(_));
-        let (mut output, extra_lines) = match &self.contents {
-            LineContent::Empty | LineContent::SubMarker(..) => single(String::new()),
-            LineContent::Bracket(c) => single(c.to_string()),
-            LineContent::Data(d) => {
-                let mut it = d.to_string(overrides, labels).into_iter();
-                (it.next().unwrap_or_default(), it)
-            }
-            LineContent::Code(c) => single(c.to_string(overrides, labels)),
-            LineContent::FillTo(f) => single(f.to_string()),
-        };
-
-        fn pad_to_width(width: usize, s: &mut String) {
-            let padding_needed = width.saturating_sub(s.chars().count());
-            s.extend(iter::repeat(' ').take(padding_needed));
-        }
-
-        if add_address_to_comment || self.comment.is_some() {
-            if !output.is_empty() {
-                pad_to_width(4 + 40 - 1, &mut output);
-                output.push(' ');
-            }
-            output.push(';');
-
-            if add_address_to_comment {
-                let (bank, low_addr) = split_addr16(self.address().unwrap());
-                write!(output, " ${bank:02X}:{low_addr:04X} ;").unwrap();
-            }
-            if let Some(comment) = self.comment.as_ref().filter(|s| !s.is_empty()) {
-                output.push_str(comment);
-            }
-        }
-
-        for line in extra_lines {
-            output.push('\n');
-            output.push_str(&line);
-        }
-
-        output
     }
 
     pub fn parse(line: &str, file_state: &mut FileParsingState) -> Line {

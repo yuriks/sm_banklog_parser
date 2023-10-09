@@ -3,13 +3,15 @@
 #![allow(clippy::cast_possible_wrap)]
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::items_after_statements)]
+#![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::verbose_bit_mask)]
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write as _};
 use std::mem;
 
 use anyhow::{anyhow, Context};
@@ -361,6 +363,54 @@ fn clone_shared_enemy_ai_library(
     Ok(())
 }
 
+struct DisplayLine<'l> {
+    prefix_lines: String,
+    address: Option<Addr>,
+    line: String,
+    comment: Option<&'l str>,
+}
+
+fn emit_bank_lines<'l>(
+    bank_lines: &'l Vec<Line>,
+    overrides: &OverrideMap,
+    labels: &LabelMap,
+    mut cb: impl FnMut(DisplayLine<'l>, &Line),
+) {
+    let mut current_addr = Addr::MAX;
+
+    for line in bank_lines {
+        let address = line.address();
+        let mut prefix_lines = String::new();
+
+        if let Some(address) = address {
+            if address != current_addr {
+                current_addr = address;
+                writeln!(&mut prefix_lines, "org ${current_addr:06X}").unwrap();
+            }
+
+            let pc_advance = line.contents.pc_advance();
+            if pc_advance != 0 {
+                let label = labels.get_label_exact(address);
+                if let Some(label) = label {
+                    writeln!(&mut prefix_lines, "{}:", label.name()).unwrap();
+                    label.assigned.set(true);
+                }
+                current_addr += pc_advance;
+            }
+        }
+
+        cb(
+            DisplayLine {
+                prefix_lines,
+                address,
+                line: line.to_string(overrides, labels),
+                comment: line.comment.as_deref(),
+            },
+            line,
+        );
+    }
+}
+
 fn write_output_files(banks: &Banks, overrides: &OverrideMap, labels: &LabelMap) {
     fn create_output_file(path: &str) -> BufWriter<File> {
         BufWriter::new(File::create(format!("./asm/{path}")).unwrap())
@@ -374,28 +424,39 @@ fn write_output_files(banks: &Banks, overrides: &OverrideMap, labels: &LabelMap)
         let mut output_file = create_output_file(&format!("bank_{bank:02x}.asm"));
         writeln!(main_file, "incsrc bank_{bank:02x}.asm").unwrap();
 
-        let mut current_addr = Addr::MAX;
+        emit_bank_lines(bank_lines, overrides, labels, |disp, line| {
+            let add_address_to_comment =
+                matches!(line.contents, LineContent::Data(_) | LineContent::Code(_));
+            let has_comment = add_address_to_comment || disp.comment.is_some();
 
-        for line in bank_lines {
-            if let Some(address) = line.address() {
-                if address != current_addr {
-                    current_addr = address;
-                    writeln!(output_file, "org ${current_addr:06X}").unwrap();
+            let (first_line, remaining_lines) = disp.line.split_once('\n').unzip();
+            let first_line = first_line.unwrap_or(&disp.line);
+
+            write!(output_file, "{}", disp.prefix_lines).unwrap();
+
+            if has_comment {
+                if first_line.is_empty() {
+                    write!(output_file, ";").unwrap();
+                } else {
+                    write!(output_file, "{:<43} ;", first_line).unwrap();
                 }
 
-                let pc_advance = line.contents.pc_advance();
-                if pc_advance != 0 {
-                    let label = labels.get_label_exact(address);
-                    if let Some(label) = label {
-                        writeln!(output_file, "{}:", label.name()).unwrap();
-                        label.assigned.set(true);
-                    }
-                    current_addr += pc_advance;
+                if let Some(address) = disp.address.filter(|_| add_address_to_comment) {
+                    let (bank, low_addr) = split_addr16(address);
+                    write!(output_file, " ${bank:02X}:{low_addr:04X} ;").unwrap();
                 }
+                if let Some(comment) = disp.comment.as_ref().filter(|s| !s.is_empty()) {
+                    write!(output_file, "{}", comment).unwrap();
+                }
+                writeln!(output_file).unwrap();
+            } else {
+                writeln!(output_file, "{}", first_line).unwrap();
             }
 
-            writeln!(output_file, "{}", line.to_string(overrides, labels)).unwrap();
-        }
+            if let Some(rest) = remaining_lines {
+                writeln!(output_file, "{}", rest).unwrap();
+            }
+        });
     }
 
     fn dump_labels(labels: &LabelMap, filename: &str, pred: impl FnMut(&&Label) -> bool) {
