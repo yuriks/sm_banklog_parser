@@ -10,7 +10,7 @@ use crate::directives::InstructionPrototype;
 use crate::line::LineContent;
 use crate::opcode::AddrMode;
 use crate::operand::{OperandType, Override, OverrideAddr, OverrideMap};
-use crate::{config, split_addr, split_addr16, Addr, Banks};
+use crate::{config, split_addr16, Addr, Bank, Banks};
 
 pub struct LabelMap {
     labels: BTreeMap<Addr, Label>,
@@ -202,7 +202,7 @@ impl Label {
     }
 
     pub fn use_from(&self, use_addr: Addr) {
-        if use_addr >> 16 != self.address >> 16 {
+        if Bank::of(use_addr) != Bank::of(self.address) {
             self.external.set(true);
         }
     }
@@ -289,7 +289,7 @@ pub fn generate_overrides(overrides: &mut OverrideMap, labels: &LabelMap) {
         };
 
         overrides.add_override(Override {
-            db: Some(split_addr16(l.address).0),
+            db: Some(Bank::of(l.address)),
             operand_type: Some(override_type),
             // Address ranges are inclusive
             ..Override::new(override_addr)
@@ -388,8 +388,8 @@ fn generate_label_name(
     usage_type: &LabelType,
     name_prefix: Option<&str>,
 ) -> LabelName {
-    let (label_bank, label_low_addr) = split_addr(label_addr);
-    let region_str = match (label_bank, label_low_addr) {
+    let (label_bank, label_low_addr) = split_addr16(label_addr);
+    let region_str = match (label_bank.0, label_low_addr) {
         (0x7E, 0x0000..=0x1FFF) => "LORAM",
         (0x7E..=0x7F, _) => "WRAM",
         (0x00, 0x2000..=0x7FFF) => "HWREG",

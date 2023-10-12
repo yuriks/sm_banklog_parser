@@ -1,14 +1,14 @@
 use crate::label::LabelMap;
 use crate::opcode::{AddrMode, Opcode, StaticAddress};
 use crate::operand::{format_address_expression_str, LabelOrLiteral, Override, OverrideMap};
-use crate::{addr16_with_bank, split_addr, split_addr16, Addr, Bank, InstructionPrototype};
+use crate::{split_addr16, Addr, Bank, InstructionPrototype};
 
 fn canonicalize_bank(addr: Addr) -> Bank {
     match split_addr16(addr) {
         // WRAM mirrors
-        ((0x00..=0x3F) | (0x80..=0xBF), 0x0000..=0x1FFF) => 0x7E,
+        (Bank(0x00..=0x3F | 0x80..=0xBF), 0x0000..=0x1FFF) => Bank(0x7E),
         // IO mirrors
-        ((0x00..=0x3F) | (0x80..=0xBF), 0x2000..=0x5FFF) => 0x00,
+        (Bank(0x00..=0x3F | 0x80..=0xBF), 0x2000..=0x5FFF) => Bank(0x00),
         (bank, _) => bank,
     }
 }
@@ -78,7 +78,7 @@ impl Code {
     }
 
     pub fn get_operand_label_address(&self, override_: Option<&Override>) -> Option<Addr> {
-        let (code_bank, _) = split_addr(self.address);
+        let code_bank = Bank::of(self.address);
 
         // label_addr override takes precedence over any automatic logic
         if let Some(addr_override) = override_.and_then(|o| o.label_addr) {
@@ -119,7 +119,7 @@ impl Code {
             override_db?;
         }
 
-        let canonical_bank = canonicalize_bank(addr16_with_bank(bank, low_addr));
+        let canonical_bank = canonicalize_bank(bank.addr(low_addr));
 
         if self.opcode.name == "PEA" {
             if (low_addr & 0x00FF) == 0 || (low_addr & 0xFF) == (low_addr >> 8) {
@@ -136,7 +136,7 @@ impl Code {
             }
         }
 
-        Some(addr16_with_bank(canonical_bank, low_addr))
+        Some(canonical_bank.addr(low_addr))
     }
 
     //noinspection IncorrectFormatting

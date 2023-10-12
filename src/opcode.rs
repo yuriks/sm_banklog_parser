@@ -371,10 +371,10 @@ impl AddrMode {
         operand: u32,
     ) -> StaticAddress {
         fn addr_in_bank(bank: Bank, addr: u16) -> StaticAddress {
-            StaticAddress::Long((Addr::from(bank) << 16) + Addr::from(addr))
+            StaticAddress::Long(bank.addr(addr))
         }
 
-        let program_bank = (instr_addr >> 16) as Bank;
+        let program_bank = Bank::of(instr_addr);
         let pc = instr_addr as u16;
         let next_pc = pc.wrapping_add(instr_length);
         let dp_base = 0u16;
@@ -414,7 +414,7 @@ impl AddrMode {
             | AddrMode::DirectIndirectIndexed
             | AddrMode::DirectIndirectLong
             | AddrMode::DirectIndirectLongIndexed => {
-                addr_in_bank(0x00, dp_base.wrapping_add(u16::from(operand_b)))
+                addr_in_bank(Bank(0x00), dp_base.wrapping_add(u16::from(operand_b)))
             }
 
             AddrMode::Absolute | AddrMode::AbsoluteIndexedX | AddrMode::AbsoluteIndexedY => {
@@ -427,7 +427,7 @@ impl AddrMode {
                 addr_in_bank(program_bank, operand_w)
             }
             AddrMode::AbsoluteIndirect | AddrMode::AbsoluteIndirectLong => {
-                addr_in_bank(0x00, operand_w)
+                addr_in_bank(Bank(0x00), operand_w)
             }
         }
     }

@@ -5,7 +5,7 @@ use crate::label::{LabelMap, LabelType};
 use crate::operand::{
     format_address_expression, LabelOrLiteral, OperandType, Override, OverrideMap,
 };
-use crate::{addr16_with_bank, split_addr16, Addr, SpecialParsingType};
+use crate::{Addr, Bank, SpecialParsingType};
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum DataVal {
@@ -361,13 +361,13 @@ pub fn get_data_label_address(
         }
     });
 
-    let (pc_bank, _) = split_addr16(cur_pc);
+    let pc_bank = Bank::of(cur_pc);
     let label_addr = ov_label_addr.unwrap_or_else(|| {
         let default_bank = ov_db.unwrap_or(pc_bank);
         match d {
             DataVal::DL(val) => Addr::from(val),
-            DataVal::DW(val) => addr16_with_bank(default_bank, val),
-            DataVal::DB(val) => addr16_with_bank(default_bank, u16::from(val)),
+            DataVal::DW(val) => default_bank.addr(val),
+            DataVal::DB(val) => default_bank.addr(u16::from(val)),
         }
     });
 

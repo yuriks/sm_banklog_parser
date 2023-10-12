@@ -13,6 +13,7 @@ use std::fmt::Write;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write as _};
 use std::mem;
+use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
 use glob::glob;
@@ -37,24 +38,12 @@ mod opcode;
 mod operand;
 mod parse;
 mod structs;
+mod types;
 
-pub type Addr = u32;
-pub type Bank = u8;
-
-pub(crate) fn addr_with_bank(bank: Bank, addr: Addr) -> Addr {
-    (Addr::from(bank) << 16) + (addr & 0xFFFF)
-}
-
-pub(crate) fn addr16_with_bank(bank: Bank, addr: u16) -> Addr {
-    (Addr::from(bank) << 16) + Addr::from(addr)
-}
-
-pub(crate) fn split_addr(addr: Addr) -> (Bank, Addr) {
-    ((addr >> 16) as Bank, addr & 0xFFFF)
-}
+pub use types::{Addr, Bank};
 
 pub(crate) fn split_addr16(addr: Addr) -> (Bank, u16) {
-    ((addr >> 16) as Bank, (addr & 0xFFFF) as u16)
+    (Bank::of(addr), (addr & 0xFFFF) as u16)
 }
 
 fn is_bulk_data(addr: Addr) -> bool {
@@ -175,16 +164,16 @@ fn parse_files() -> Banks {
     let mut result = BTreeMap::new();
 
     let filenames = glob("./logs/*.asm").unwrap();
-    let filename_regex = Regex::new(r"Bank \$([0-9A-F]{2})(?:\.\.\$([0-9A-F]{2}))?").unwrap();
+    let filename_regex = Regex::new(r"Bank (\$[0-9A-F]{2})(?:\.\.(\$[0-9A-F]{2}))?").unwrap();
     for filename in filenames.flatten() {
         let cap = filename_regex.captures(filename.to_str().unwrap()).unwrap();
-        let bank_start = u8::from_str_radix(&cap[1], 16).unwrap();
+        let bank_start = Bank::from_str(&cap[1]).unwrap();
         let bank_end = cap
             .get(2)
-            .map_or(bank_start, |s| u8::from_str_radix(s.as_str(), 16).unwrap());
+            .map_or(bank_start, |m| Bank::from_str(m.as_str()).unwrap());
 
         let file = BufReader::new(File::open(&filename).unwrap());
-        let mut file_state = FileParsingState::new(addr16_with_bank(bank_start, 0x8000));
+        let mut file_state = FileParsingState::new(bank_start.addr(0x8000));
         let mut lines = Vec::new();
         let mut running_bulk_bytes_omitted = 0;
 
@@ -211,7 +200,7 @@ fn parse_files() -> Banks {
                 file_state.cur_addr |= 0x8000;
             }
 
-            let (bank, _) = split_addr16(line_addr);
+            let bank = Bank::of(line_addr);
             if (bank < bank_start || bank > bank_end) && parsed.contents.produces_output() {
                 eprintln!(
                     "Line defined outside of the bank range of its file: ${:06X} in `{}`. Line: {:#X?}",
@@ -266,7 +255,7 @@ fn clone_shared_enemy_ai_library(
 ) -> anyhow::Result<()> {
     // Gather source lines from bank $A0
     let template_lines: Vec<Line> = {
-        let a0_lines = banks.get(&0xA0).context("Bank $A0 not in input")?;
+        let a0_lines = banks.get(&Bank(0xA0)).context("Bank $A0 not in input")?;
         let mut it = a0_lines.iter();
 
         // Advances iterator until the header line we want
@@ -306,11 +295,11 @@ fn clone_shared_enemy_ai_library(
     };
 
     // Copy enemy banks to respective new bank
-    let enemy_banks = (0xA2u8..=0xAA).chain(0xB2..=0xB3);
+    let enemy_banks = (0xA2u8..=0xAA).chain(0xB2..=0xB3).map(Bank);
     for bank in enemy_banks {
         let bank_lines = banks
             .get_mut(&bank)
-            .with_context(|| format!("Bank ${bank:02X} doesn't exist"))?;
+            .with_context(|| format!("Bank {bank} doesn't exist"))?;
 
         let insertion_pos = 1 + bank_lines
             .iter()
@@ -319,7 +308,7 @@ fn clone_shared_enemy_ai_library(
                     .as_ref()
                     .is_some_and(|c| c.trim_start().starts_with("See bank $A0"))
             })
-            .with_context(|| format!("Target line not found in bank ${bank:02X}"))?;
+            .with_context(|| format!("Target line not found in bank {bank}"))?;
 
         bank_lines.splice(
             insertion_pos..insertion_pos,
@@ -328,7 +317,7 @@ fn clone_shared_enemy_ai_library(
                     return line;
                 };
 
-                let new_addr = addr_with_bank(bank, address);
+                let new_addr = bank.addr(address as u16);
                 if let LineContent::Code(c) = &line.contents {
                     if let Some(instr_proto) = &c.instruction_prototype {
                         let new_label = Label::new(
@@ -344,11 +333,9 @@ fn clone_shared_enemy_ai_library(
 
                     // Auto-add overrides to fix labels that referenced bank $A0
                     if let StaticAddress::DataBank(_low_addr) = c.get_operand() {
-                        if let Some(0xA0) =
-                            c.get_operand_label_address(None).map(|a| split_addr16(a).0)
-                        {
+                        if let Some(Bank(0xA0)) = c.get_operand_label_address(None).map(Bank::of) {
                             overrides.add_override(Override {
-                                db: Some(0xA0),
+                                db: Some(Bank(0xA0)),
                                 ..Override::new(OverrideAddr::Address(new_addr))
                             });
                         }

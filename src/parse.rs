@@ -10,7 +10,7 @@ use winnow::token::{one_of, take_till0, take_while};
 use winnow::trace::trace;
 
 use crate::data::DataVal;
-use crate::{addr16_with_bank, Addr, Bank};
+use crate::{Addr, Bank};
 
 pub fn of_length<I: Stream, O, E: ParserError<I>>(
     expected_len: usize,
@@ -48,12 +48,12 @@ fn line_comment<'i>(i: &mut &'i str) -> PResult<&'i str> {
 
 fn pc_prefix(i: &mut &str) -> PResult<Addr> {
     preceded('$', separated_pair(hex2, ':', hex4))
-        .map(|(bank, low_addr)| addr16_with_bank(bank, low_addr))
+        .map(|(bank, low_addr)| Bank(bank).addr(low_addr))
         .parse_next(i)
 }
 
 fn pc_address(i: &mut &str) -> PResult<(Option<Bank>, u16)> {
-    preceded('$', (opt(terminated(hex2, ':')), hex4)).parse_next(i)
+    preceded('$', (opt(terminated(hex2.map(Bank), ':')), hex4)).parse_next(i)
 }
 
 // Present after `pc_prefix` in banks containing SPC code
@@ -327,7 +327,7 @@ mod tests {
         assert_eq!(res.line_addr, 0x82_8CB2);
         assert_eq!(res.instruction_bytes, vec![0xBC, 0x9D, 0x1A]);
         assert_eq!(res.mnemonic, "LDY");
-        assert_eq!(res.logged_address, Some((Some(0x7E), 0x1AAB)));
+        assert_eq!(res.logged_address, Some((Some(Bank(0x7E)), 0x1AAB)));
     }
 
     #[test]
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(res.line_addr, 0x80_801B);
         assert_eq!(res.instruction_bytes, vec![0xB7, 0x03]);
         assert_eq!(res.mnemonic, "LDA");
-        assert_eq!(res.logged_address, Some((Some(0x80), 0x845D)));
+        assert_eq!(res.logged_address, Some((Some(Bank(0x80)), 0x845D)));
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(res.line_addr, 0x82_8D11);
         assert_eq!(res.instruction_bytes, vec![0xDC, 0x01, 0x06]);
         assert_eq!(res.mnemonic, "JML");
-        assert_eq!(res.logged_address, Some((Some(0x88), 0x83E1)));
+        assert_eq!(res.logged_address, Some((Some(Bank(0x88)), 0x83E1)));
     }
 
     #[test]
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(res.line_addr, 0x80_8066);
         assert_eq!(res.instruction_bytes, vec![0xCF, 0x40, 0x21, 0x00]);
         assert_eq!(res.mnemonic, "CMP");
-        assert_eq!(res.logged_address, Some((Some(0x7E), 0x2140)));
+        assert_eq!(res.logged_address, Some((Some(Bank(0x7E)), 0x2140)));
     }
 
     #[test]

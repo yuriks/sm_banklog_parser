@@ -261,7 +261,7 @@ fn process_code_line(
     // the bank for IO port operations. Discard these to fall back to guessing and prevent
     // matching to incorrect labels.
     let logged_bank = logged_addr
-        .filter(|(bank, addr)| !matches!((bank, addr), (0x7E, 0x2000..=0x5FFF)))
+        .filter(|(bank, addr)| !matches!((bank.0, addr), (0x7E, 0x2000..=0x5FFF)))
         .map(|(bank, _)| bank);
 
     if opcode.name == "BRK" && operand_size == 0 {
