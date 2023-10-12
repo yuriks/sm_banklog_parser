@@ -10,12 +10,10 @@ pub type Addr = u32;
 pub struct Bank(pub u8);
 
 impl Bank {
-    #[must_use]
     pub fn addr(self, low_addr: u16) -> Addr {
         (Addr::from(self.0) << 16) + Addr::from(low_addr)
     }
 
-    #[must_use]
     pub fn of(addr: Addr) -> Bank {
         Bank((addr >> 16) as u8)
     }

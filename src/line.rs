@@ -143,6 +143,7 @@ impl Line {
         self.contents.address()
     }
 
+    #[must_use]
     pub fn with_address(mut self, address: Addr) -> Line {
         self.contents = self.contents.with_address(address);
         self

@@ -7,6 +7,9 @@
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::verbose_bit_mask)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::new_without_default)]
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -358,7 +361,7 @@ struct DisplayLine<'l> {
 }
 
 fn emit_bank_lines<'l>(
-    bank_lines: &'l Vec<Line>,
+    bank_lines: &'l [Line],
     overrides: &OverrideMap,
     labels: &LabelMap,
     mut cb: impl FnMut(DisplayLine<'l>, &Line) -> anyhow::Result<()>,
